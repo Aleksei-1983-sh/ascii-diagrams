@@ -1,0 +1,42 @@
+name: AI Review Fix
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  fix:
+    if: contains(github.event.comment.body, '/ai-fix')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup git
+        run: |
+          git config --global user.name "ai-bot"
+          git config --global user.email "ai@bot.com"
+
+      - name: Get PR branch
+        run: |
+          gh pr checkout ${{ github.event.issue.number }}
+
+      - name: Collect review comments
+        run: |
+          gh pr view ${{ github.event.issue.number }} \
+            --json reviews,comments > review.json
+
+      - name: Run Codex
+        run: |
+          codex fix \
+            --review review.json \
+            --style "K&R C" \
+            --apply
+
+      - name: Commit fixes
+        run: |
+          git add .
+          git commit -m "AI: fix review comments"
+          git push
