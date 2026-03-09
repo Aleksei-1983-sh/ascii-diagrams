@@ -41,4 +41,3 @@ extern int VIEWPORT_VX;
 extern int VIEWPORT_VY;
 
 #endif
-
