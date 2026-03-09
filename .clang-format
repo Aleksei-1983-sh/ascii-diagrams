@@ -1,0 +1,12 @@
+BasedOnStyle: LLVM
+Language: Cpp
+UseTab: Always
+IndentWidth: 8
+TabWidth: 8
+BreakBeforeBraces: Allman
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AlwaysBreakAfterReturnType: AllDefinitions
+ColumnLimit: 100
+SortIncludes: Never

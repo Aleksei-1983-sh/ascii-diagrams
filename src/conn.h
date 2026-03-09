@@ -20,11 +20,12 @@ typedef struct point
 	int y;
 } point_t;
 
-typedef struct conn {
-    int a,b; /* ids */
-    /* опциональная контрольная точка для ручного угла (world coords) */
-    int has_control;
-    point_t point_control;
+typedef struct conn
+{
+	int a, b; /* ids */
+	/* опциональная контрольная точка для ручного угла (world coords) */
+	int has_control;
+	point_t point_control;
 
 	point_t point_conn_out;
 	point_t point_conn_in;
@@ -41,4 +42,3 @@ void conn_set_control_point(int idx, int wx, int wy); /* установить co
 void conn_clear_control_point(int idx);
 
 #endif
-

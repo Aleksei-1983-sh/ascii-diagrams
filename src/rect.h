@@ -13,23 +13,25 @@
      rect_get_border_point(...)
 
  - Новые функции управления порядком:
-     rect_move_to_tail(idx)     -- переместить узел (по индексу) в хвост списка (будет рисоваться последним)
+     rect_move_to_tail(idx)     -- переместить узел (по индексу) в хвост списка (будет рисоваться
+ последним)
 */
 #ifndef ASCIIFLOW_RECT_H
 #define ASCIIFLOW_RECT_H
 #include "config.h"
 #include "debug.h"
 
-typedef struct Rect {
-    int id;
-    int x,y; /* left,top */
-    int w,h;
-    char text[MAX_TEXT_LEN];
-    char title[MAX_TITLE_LEN];
+typedef struct Rect
+{
+	int id;
+	int x, y; /* left,top */
+	int w, h;
+	char text[MAX_TEXT_LEN];
+	char title[MAX_TITLE_LEN];
 
-    /* расширяемая область для будущих полей (parent, offsets и т.д.) */
-    int parent_id; /* -1 если нет (планируемая поддержка anchoring) */
-    int offset_x, offset_y;
+	/* расширяемая область для будущих полей (parent, offsets и т.д.) */
+	int parent_id; /* -1 если нет (планируемая поддержка anchoring) */
+	int offset_x, offset_y;
 } Rect;
 
 /* управление блоками */
@@ -42,8 +44,8 @@ int rect_count(void);
    Внутри мы итерируем связный список до нужного индекса. */
 Rect *rect_get(int idx);
 
-/* 
- * Возвращает указатель на Rect по id 
+/*
+ * Возвращает указатель на Rect по id
  */
 Rect *rect_by_id_get(int id);
 
