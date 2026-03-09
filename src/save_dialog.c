@@ -1,3 +1,9 @@
+/*
+ * Path: src/save_dialog.c
+ * Implements the save dialog UI logic: browsing directories, selecting files,
+ * and confirming where diagram data should be stored.
+ */
+
 #define _POSIX_C_SOURCE 200809L
 
 #include "save_dialog.h"
