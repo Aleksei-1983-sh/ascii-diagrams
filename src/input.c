@@ -13,6 +13,7 @@
 #include "ui.h"
 #include "panel.h"
 #include "debug.h"
+#include "save_dialog.h"
 
 #include <string.h>
 #include <sys/time.h>
@@ -245,9 +246,20 @@ handle_left_pressed(InputState *s, int mx, int my, int buttons)
 
 	int bx = BTN_X, by = BTN_Y;
 	int blen = (int)strlen(BTN_TEXT);
+	int sbx = SAVE_BTN_X;
+	int sblen = (int)strlen(SAVE_BTN_TEXT);
+
 	if (mx >= bx && mx < bx + blen && my == by)
 	{
 		rect_add(10 + (rect_count() % 6) * 3, 6 + (rect_count() % 6) * 1);
+		ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected,
+			    s->last_mouse_x, s->last_mouse_y);
+		return;
+	}
+
+	if (mx >= sbx && mx < sbx + sblen && my == by)
+	{
+		save_dialog_open();
 		ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected,
 			    s->last_mouse_x, s->last_mouse_y);
 		return;
