@@ -20,6 +20,8 @@
 #define BTN_X 2
 #define BTN_Y 1
 #define BTN_TEXT "[Create Rect]"
+#define SAVE_BTN_X (BTN_X + (int)sizeof(BTN_TEXT) + 4)
+#define SAVE_BTN_TEXT "[Save As]"
 #define MIN_W 6
 #define MIN_H 3
 #define MAX_TEXT_LEN 1024
