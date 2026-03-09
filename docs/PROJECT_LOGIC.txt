@@ -1,0 +1,12 @@
+PROJECT LOGIC
+=============
+This split version separates responsibilities:
+
+- rect.c / rect.h: storage and geometry logic for blocks (Rect).
+- conn.c / conn.h: storage and drawing logic for connections.
+- ui.c / ui.h: rendering functions that compose rects, conns, and panel.
+- panel.c / panel.h: right-side edit panel rendering.
+- input.c: main run loop handling mouse/keyboard and high-level interactions.
+- asciiflow.c: small main that initializes and starts the loop.
+
+The goal is to be able to expand each module independently.
