@@ -83,6 +83,22 @@ typedef struct {
 	mmask_t oldmask;
 } InputState;
 
+static void
+redraw(InputState *s)
+{
+	ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected,
+		s->last_mouse_x, s->last_mouse_y);
+}
+
+static void
+clear_drag_state(InputState *s)
+{
+	s->dragging = 0;
+	s->drag_idx = -1;
+	s->resizing = 0;
+	s->resize_idx = -1;
+}
+
 /* Инициализация состояния */
 static void input_state_init(InputState *s)
 {
@@ -175,7 +191,7 @@ static void enter_edit_mode(InputState *s, int idx)
 	s->editing = 1;
 	s->edit_idx = idx;
 	s->panel_focus = 0;
-	ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y);
+	redraw(s);
 	update_edit_cursor(s);
 }
 
@@ -222,7 +238,8 @@ static void handle_left_pressed(InputState *s, int mx, int my, int buttons)
 		if (s->last_left_click_idx == idx && (t - s->last_left_click_time_ms) <= DOUBLE_CLICK_MS) {
 			LOG_INPUT("double click idx=%d id=%d", idx, r_before->id);
 			enter_edit_mode(s, idx);
-			s->dragging = 0; s->drag_idx = -1;
+			s->dragging = 0;
+			s->drag_idx = -1;
 			return;
 		}
 
@@ -269,7 +286,7 @@ static void handle_mouse_move_or_hold(InputState *s, int mx, int my)
 		if (VIEWPORT_VY < WORLD_MIN_Y) VIEWPORT_VY = WORLD_MIN_Y;
 		if (VIEWPORT_VX > WORLD_MAX_X - COLS) VIEWPORT_VX = WORLD_MAX_X - COLS;
 		if (VIEWPORT_VY > WORLD_MAX_Y - LINES) VIEWPORT_VY = WORLD_MAX_Y - LINES;
-		ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, mx, my);
+		redraw(s);
 		return;
 	}
 
@@ -277,7 +294,7 @@ static void handle_mouse_move_or_hold(InputState *s, int mx, int my)
 	if (s->conn_dragging && s->conn_drag_idx >= 0) {
 		int wx, wy; screen_to_world_point(mx, my, &wx, &wy);
 		conn_set_control_point(s->conn_drag_idx, wx, wy);
-		ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, mx, my);
+		redraw(s);
 		return;
 	}
 
@@ -288,7 +305,7 @@ static void handle_mouse_move_or_hold(InputState *s, int mx, int my)
 			r->x = wx - s->drag_offx;
 			r->y = wy - s->drag_offy;
 			rect_clamp(r);
-			ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, mx, my);
+			redraw(s);
 		}
 	}
 
@@ -299,7 +316,7 @@ static void handle_mouse_move_or_hold(InputState *s, int mx, int my)
 		r->w = (wx - r->x) + 1;
 		r->h = (wy - r->y) + 1;
 		rect_clamp(r);
-		ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, mx, my);
+		redraw(s);
 	}
 }
 
@@ -307,8 +324,7 @@ static void handle_mouse_move_or_hold(InputState *s, int mx, int my)
 static void handle_left_released(InputState *s)
 {
 	LOG_INPUT("left_released");
-	s->dragging = 0; s->drag_idx = -1;
-	s->resizing = 0; s->resize_idx = -1;
+	clear_drag_state(s);
 	/* если пэннинг активен, отключим */
 	if (s->panning) {
 		s->panning = 0;
@@ -320,7 +336,7 @@ static void handle_left_released(InputState *s)
 		s->conn_drag_idx = -1;
 	}
 
-	ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y);
+	redraw(s);
 }
 
 /* RIGHT handlers unchanged (they use world conversions when necessary) */
@@ -330,7 +346,7 @@ static void handle_right_double_click(InputState *s, int mx, int my)
 	int cidx = conn_hit_at(wx, wy);
 	if (cidx >= 0) {
 		conn_remove_at(cidx);
-		ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, mx, my);
+		redraw(s);
 	}
 }
 
@@ -344,7 +360,7 @@ static void handle_right_pressed(InputState *s, int mx, int my)
 		s->conn_move_orig_b = conn_get(cidx)->b;
 		s->last_right_click_time_ms = now_ms();
 		s->last_right_click_conn = cidx;
-		ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, mx, my);
+		redraw(s);
 		return;
 	}
 
@@ -359,11 +375,11 @@ static void handle_right_pressed(InputState *s, int mx, int my)
 			int b = rect_get(idx)->id;
 			if (a != b) conn_add(a, b);
 			s->conn_start_id = -1;
-			ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, mx, my);
+			redraw(s);
 		}
 	} else {
 		s->conn_start_id = -1;
-		ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, mx, my);
+		redraw(s);
 	}
 }
 
@@ -385,8 +401,41 @@ static void handle_right_released(InputState *s, int mx, int my)
 		s->conn_move_active = 0;
 		s->conn_selected = -1;
 		s->conn_move_orig_b = -1;
-		ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, mx, my);
+		redraw(s);
 	}
+}
+
+static int
+append_char(char *text, int max_len, int ch)
+{
+	int len;
+
+	if (text == NULL)
+		return 0;
+
+	len = (int)strlen(text);
+	if (len + 1 >= max_len)
+		return 0;
+
+	text[len] = (char)ch;
+	text[len + 1] = '\0';
+	return 1;
+}
+
+static int
+erase_last_char(char *text)
+{
+	int len;
+
+	if (text == NULL)
+		return 0;
+
+	len = (int)strlen(text);
+	if (len <= 0)
+		return 0;
+
+	text[len - 1] = '\0';
+	return 1;
 }
 
 /* Обработка клавиш в режиме редактирования (включая панель) — как было */
@@ -399,62 +448,91 @@ static int handle_edit_keys(InputState *s, int ch)
 	if (s->panel_focus == 0) {
 		if (ch == KEY_F(2) || ch == '\t') {
 			s->panel_focus = 1;
-			ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y);
+			redraw(s);
 			return 1;
 		}
-		if (ch == 27) { exit_edit_mode(s); ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y); return 1; }
+		if (ch == 27) {
+			exit_edit_mode(s);
+			redraw(s);
+			return 1;
+		}
 		if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
-			int len = (int)strlen(er->text);
-			if (len > 0) er->text[len - 1] = '\0';
-			ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y);
-			update_edit_cursor(s);
-			return 1;
-		}
-
-		if (ch == 14) { /* Ctrl+N */
-			int len = (int)strlen(er->text);
-			if (len + 1 < MAX_TEXT_LEN) {
-				er->text[len] = '\n';
-				er->text[len + 1] = '\0';
-				ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y);
+			if (erase_last_char(er->text)) {
+				redraw(s);
 				update_edit_cursor(s);
 			}
 			return 1;
 		}
 
-		if (ch == '\n' || ch == '\r') { exit_edit_mode(s); ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y); return 1; }
+		if (ch == 14) { /* Ctrl+N */
+			if (append_char(er->text, MAX_TEXT_LEN, '\n')) {
+				redraw(s);
+				update_edit_cursor(s);
+			}
+			return 1;
+		}
+
+		if (ch == '\n' || ch == '\r') {
+			exit_edit_mode(s);
+			redraw(s);
+			return 1;
+		}
 		if (isprint(ch)) {
-			int len = (int)strlen(er->text);
-			if (len + 1 < MAX_TEXT_LEN) {
-				er->text[len] = (char)ch;
-				er->text[len + 1] = '\0';
-				ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y);
+			if (append_char(er->text, MAX_TEXT_LEN, ch)) {
+				redraw(s);
 				update_edit_cursor(s);
 			}
 			return 1;
 		}
 	} else {
-		if (ch == KEY_F(2) || ch == '\t') { s->panel_focus = 0; ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y); return 1; }
-		if (ch == 27) { exit_edit_mode(s); ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y); return 1; }
+		if (ch == KEY_F(2) || ch == '\t') {
+			s->panel_focus = 0;
+			redraw(s);
+			return 1;
+		}
+		if (ch == 27) {
+			exit_edit_mode(s);
+			redraw(s);
+			return 1;
+		}
 		if (isprint(ch)) {
-			int len = (int)strlen(er->title);
-			if (len + 1 < MAX_TITLE_LEN) {
-				er->title[len] = (char)ch;
-				er->title[len + 1] = '\0';
-				ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y);
-			}
+			if (append_char(er->title, MAX_TITLE_LEN, ch))
+				redraw(s);
 			return 1;
 		}
 		if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
-			int len = (int)strlen(er->title);
-			if (len > 0) { er->title[len - 1] = '\0'; ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y); }
+			if (erase_last_char(er->title))
+				redraw(s);
 			return 1;
 		}
-		if (ch == '+') { er->w += 1; rect_clamp(er); ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y); return 1; }
-		if (ch == '-') { er->w -= 1; rect_clamp(er); ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y); return 1; }
-		if (ch == '*') { er->h += 1; rect_clamp(er); ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y); return 1; }
-		if (ch == '/') { er->h -= 1; rect_clamp(er); ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y); return 1; }
-		if (ch == '\n' || ch == '\r') { ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x, s->last_mouse_y); return 1; }
+		if (ch == '+') {
+			er->w += 1;
+			rect_clamp(er);
+			redraw(s);
+			return 1;
+		}
+		if (ch == '-') {
+			er->w -= 1;
+			rect_clamp(er);
+			redraw(s);
+			return 1;
+		}
+		if (ch == '*') {
+			er->h += 1;
+			rect_clamp(er);
+			redraw(s);
+			return 1;
+		}
+		if (ch == '/') {
+			er->h -= 1;
+			rect_clamp(er);
+			redraw(s);
+			return 1;
+		}
+		if (ch == '\n' || ch == '\r') {
+			redraw(s);
+			return 1;
+		}
 	}
 
 	return 0; /* ключ не обработан здесь */
@@ -537,7 +615,7 @@ void run_loop(void)
 				prev_bstate = cur;
 			}
 		} else if (ch == KEY_RESIZE) {
-			ui_draw_all(st.editing, st.edit_idx, st.conn_move_active, st.conn_selected, st.last_mouse_x, st.last_mouse_y);
+			redraw(&st);
 		} else {
 			if (st.editing && st.edit_idx >= 0) {
 				if (handle_edit_keys(&st, ch)) continue;
