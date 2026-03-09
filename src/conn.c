@@ -48,6 +48,30 @@ static inline int between_i(int v, int a, int b) {
     return v >= a && v <= b;
 }
 
+static int
+rects_overlap(const Rect *a, const Rect *b)
+{
+	int a_right;
+	int a_bottom;
+	int b_right;
+	int b_bottom;
+
+	if (a == NULL || b == NULL)
+		return 0;
+
+	a_right = a->x + a->w - 1;
+	a_bottom = a->y + a->h - 1;
+	b_right = b->x + b->w - 1;
+	b_bottom = b->y + b->h - 1;
+
+	if (a_right < b->x || b_right < a->x)
+		return 0;
+	if (a_bottom < b->y || b_bottom < a->y)
+		return 0;
+
+	return 1;
+}
+
 /* API для control point */
 void conn_set_control_point(int idx, int wx, int wy) {
     if (idx < 0 || idx >= conn_count_v) return;
@@ -320,6 +344,11 @@ void conn_draw_all(void)
         Rect *ra = rect_get(index_rect_a);
         Rect *rb = rect_get(index_rect_b);
         if (!ra || !rb) continue;
+
+		if (rects_overlap(ra, rb)) {
+			LOG_CONN("conn[%d] skip: rectangles overlap a=%d b=%d", i, conns[i].a, conns[i].b);
+			continue;
+		}
 
         /* Вычисляем границы для рисования (точки на периметре блоков) */
         point_t pA, pB;
