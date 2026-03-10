@@ -12,5 +12,6 @@
 
 void ui_draw_all(int editing, int edit_idx, int conn_move_active, int conn_selected,
 		 int last_mouse_x, int last_mouse_y);
+void ui_draw_box(int x, int y, int box_w, int box_h, const char *title);
 
 #endif

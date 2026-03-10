@@ -21,6 +21,36 @@ draw_button(void)
 	mvaddstr(BTN_Y, SAVE_BTN_X + (int)strlen(SAVE_BTN_TEXT) + 2, "(left click)");
 }
 
+void
+ui_draw_box(int x, int y, int box_w, int box_h, const char *title)
+{
+	int i;
+	int j;
+
+	if (box_w < 2 || box_h < 2)
+		return;
+
+	mvaddch(y, x, '+');
+	mvaddch(y, x + box_w - 1, '+');
+	mvaddch(y + box_h - 1, x, '+');
+	mvaddch(y + box_h - 1, x + box_w - 1, '+');
+
+	for (i = 1; i < box_w - 1; ++i)
+	{
+		mvaddch(y, x + i, '-');
+		mvaddch(y + box_h - 1, x + i, '-');
+	}
+
+	for (j = 1; j < box_h - 1; ++j)
+	{
+		mvaddch(y + j, x, '|');
+		mvaddch(y + j, x + box_w - 1, '|');
+	}
+
+	if (title != NULL && title[0] != '\0' && box_w > 4)
+		mvaddnstr(y, x + 2, title, box_w - 4);
+}
+
 /* ui_draw_all — рисует все элементы с учётом viewport */
 void
 ui_draw_all(int editing, int edit_idx, int conn_move_active, int conn_selected, int last_mouse_x,
