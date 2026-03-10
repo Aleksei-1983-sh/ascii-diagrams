@@ -3,6 +3,7 @@
  Реализация правой панели редактирования (только отрисовка).
 */
 #include "panel.h"
+#include "ui.h"
 
 void
 panel_draw(Rect *r)
@@ -16,21 +17,7 @@ panel_draw(Rect *r)
 	int panel_h = 10;
 	if (panel_x + panel_w > term_w - 1)
 		panel_x = term_w - panel_w - 1;
-	mvaddch(panel_y, panel_x, '+');
-	mvaddch(panel_y, panel_x + panel_w - 1, '+');
-	mvaddch(panel_y + panel_h - 1, panel_x, '+');
-	mvaddch(panel_y + panel_h - 1, panel_x + panel_w - 1, '+');
-	for (int i = 1; i < panel_w - 1; i++)
-	{
-		mvaddch(panel_y, panel_x + i, '-');
-		mvaddch(panel_y + panel_h - 1, panel_x + i, '-');
-	}
-	for (int j = 1; j < panel_h - 1; j++)
-	{
-		mvaddch(panel_y + j, panel_x, '|');
-		mvaddch(panel_y + j, panel_x + panel_w - 1, '|');
-	}
-	mvaddnstr(panel_y, panel_x + 2, " Edit Block ", 12);
+	ui_draw_box(panel_x, panel_y, panel_w, panel_h, " Edit Block ");
 	mvprintw(panel_y + 2, panel_x + 2, "Title:");
 	mvaddnstr(panel_y + 3, panel_x + 2, r->title[0] ? r->title : "(empty)", panel_w - 4);
 	mvprintw(panel_y + 5, panel_x + 2, "Width: %d", r->w);

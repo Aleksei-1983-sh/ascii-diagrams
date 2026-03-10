@@ -9,6 +9,7 @@
 #include "save_dialog.h"
 #include "storage.h"
 #include "config.h"
+#include "ui.h"
 
 #include <dirent.h>
 #include <limits.h>
@@ -21,6 +22,8 @@
 #define DLG_MAX_ITEMS 512
 #define DLG_NAME_MAX 256
 #define DLG_INPUT_MAX 128
+#define DLG_W 66
+#define DLG_MAX_LIST_H 8
 
 typedef struct
 {
@@ -32,6 +35,9 @@ typedef struct
 {
 	char current_dir[PATH_MAX];
 	char file_name[DLG_INPUT_MAX];
+	char *background;
+	int bg_w;
+	int bg_h;
 	DialogItem_t items[DLG_MAX_ITEMS];
 	int item_count;
 	int scroll;
@@ -75,6 +81,50 @@ join_path(const char *base, const char *name, char *out, int out_size)
 	if (strcmp(base, "/") == 0)
 		return snprintf(out, (size_t)out_size, "/%s", name) >= out_size ? -1 : 0;
 	return snprintf(out, (size_t)out_size, "%s/%s", base, name) >= out_size ? -1 : 0;
+}
+
+static void
+free_background(SaveDialogState_t *s)
+{
+	if (s == NULL)
+		return;
+	if (s->background == NULL)
+		return;
+
+	free(s->background);
+	s->background = NULL;
+	s->bg_w = 0;
+	s->bg_h = 0;
+}
+
+static int
+capture_background(SaveDialogState_t *s)
+{
+	int x;
+	int y;
+
+	if (s == NULL)
+		return -1;
+
+	free_background(s);
+	getmaxyx(stdscr, s->bg_h, s->bg_w);
+	if (s->bg_w <= 0 || s->bg_h <= 0)
+		return -1;
+
+	s->background = calloc((size_t)s->bg_w * (size_t)s->bg_h, sizeof(s->background[0]));
+	if (s->background == NULL)
+		return -1;
+
+	for (y = 0; y < s->bg_h; ++y)
+	{
+		for (x = 0; x < s->bg_w; ++x)
+		{
+			chtype ch = mvinch(y, x);
+			s->background[y * s->bg_w + x] = (char)(ch & A_CHARTEXT);
+		}
+	}
+
+	return 0;
 }
 
 static void
@@ -181,8 +231,10 @@ save_to_selected_path(SaveDialogState_t *s)
 	n = snprintf(path, sizeof(path), "%s/%s", s->current_dir, s->file_name);
 	if (n < 0 || n >= (int)sizeof(path))
 		return -1;
+	if (s->background == NULL)
+		return -1;
 
-	return storage_save_text(path);
+	return storage_save_visual(path, s->background, s->bg_w, s->bg_h);
 }
 
 static void
@@ -194,14 +246,18 @@ draw_dialog(SaveDialogState_t *s)
 	int y0;
 	int list_h;
 	int i;
+	int dlg_h;
 
 	if (s == NULL)
 		return;
 
-	erase();
 	getmaxyx(stdscr, h, w);
-	x0 = 2;
-	y0 = 1;
+	x0 = (w - DLG_W) / 2;
+	y0 = (h - 18) / 2;
+	if (x0 < 0)
+		x0 = 0;
+	if (y0 < 0)
+		y0 = 0;
 	if (h < 10 || w < 30)
 	{
 		mvaddstr(0, 0, "Terminal too small for save dialog");
@@ -209,14 +265,19 @@ draw_dialog(SaveDialogState_t *s)
 		return;
 	}
 
+	for (i = 0; i < s->bg_h; ++i)
+		mvaddnstr(i, 0, s->background + i * s->bg_w, s->bg_w);
+
 	list_h = h - 10;
 	if (list_h < 3)
 		list_h = 3;
+	if (list_h > DLG_MAX_LIST_H)
+		list_h = DLG_MAX_LIST_H;
+	dlg_h = list_h + 8;
 
-	mvaddstr(y0, x0, "+--------------------------------------------------------------+");
-	mvaddstr(y0 + 1, x0, "| Save diagram to text file                                   |");
-	mvprintw(y0 + 2, x0, "| Dir: %-56s|", s->current_dir);
-	mvaddstr(y0 + 3, x0, "| [..] go parent                                               |");
+	ui_draw_box(x0, y0, DLG_W, dlg_h, " Save diagram ");
+	mvprintw(y0 + 1, x0 + 2, "Dir: %-58s", s->current_dir);
+	mvaddstr(y0 + 2, x0 + 2, "[..] go parent");
 
 	for (i = 0; i < list_h; ++i)
 	{
@@ -232,12 +293,11 @@ draw_dialog(SaveDialogState_t *s)
 		{
 			snprintf(line, sizeof(line), " ");
 		}
-		mvprintw(y0 + 4 + i, x0, "| %-60s|", line);
+		mvprintw(y0 + 3 + i, x0 + 2, "%-61s", line);
 	}
 
-	mvaddstr(y0 + 4 + list_h, x0, "+--------------------------------------------------------------+");
-	mvprintw(y0 + 5 + list_h, x0, "File name: %-50s", s->file_name);
-	mvaddstr(y0 + 6 + list_h, x0, "[Save]   [Cancel]   (mouse: click items/buttons)");
+	mvprintw(y0 + 4 + list_h, x0 + 2, "File name: %-54s", s->file_name);
+	mvaddstr(y0 + 5 + list_h, x0 + 2, "[Save]   [Cancel]   (mouse: click items/buttons)");
 	refresh();
 }
 
@@ -269,6 +329,7 @@ save_dialog_open(void)
 		safe_str_copy(s.current_dir, sizeof(s.current_dir), ".");
 
 	load_directory(&s);
+	capture_background(&s);
 	old_cursor = curs_set(1);
 
 	for (;;)
@@ -282,13 +343,20 @@ save_dialog_open(void)
 		list_h = h - 10;
 		if (list_h < 3)
 			list_h = 3;
-		y0 = 1;
-		x0 = 2;
-		move(y0 + 5 + list_h, x0 + 11 + (int)strlen(s.file_name));
+		if (list_h > DLG_MAX_LIST_H)
+			list_h = DLG_MAX_LIST_H;
+		y0 = (h - 18) / 2;
+		x0 = (w - DLG_W) / 2;
+		if (y0 < 0)
+			y0 = 0;
+		if (x0 < 0)
+			x0 = 0;
+		move(y0 + 4 + list_h, x0 + 13 + (int)strlen(s.file_name));
 
 		ch = getch();
 		if (ch == 27)
 		{
+			free_background(&s);
 			curs_set(old_cursor);
 			return -1;
 		}
@@ -315,6 +383,7 @@ save_dialog_open(void)
 		{
 			if (save_to_selected_path(&s) == 0)
 			{
+				free_background(&s);
 				curs_set(old_cursor);
 				return 0;
 			}
@@ -332,14 +401,14 @@ save_dialog_open(void)
 		if (!(me.bstate & BUTTON1_PRESSED))
 			continue;
 
-		if (me.y == y0 + 3 && me.x >= x0 + 2 && me.x <= x0 + 16)
+		if (me.y == y0 + 2 && me.x >= x0 + 2 && me.x <= x0 + 16)
 		{
 			go_parent(&s);
 			continue;
 		}
-		if (me.y >= y0 + 4 && me.y < y0 + 4 + list_h)
+		if (me.y >= y0 + 3 && me.y < y0 + 3 + list_h)
 		{
-			int idx = s.scroll + (me.y - (y0 + 4));
+			int idx = s.scroll + (me.y - (y0 + 3));
 			if (idx >= 0 && idx < s.item_count)
 			{
 				s.selected = idx;
@@ -361,18 +430,20 @@ save_dialog_open(void)
 			continue;
 		}
 
-		if (me.y == y0 + 6 + list_h)
+		if (me.y == y0 + 5 + list_h)
 		{
-			if (me.x >= x0 && me.x < x0 + 6)
+			if (me.x >= x0 + 2 && me.x < x0 + 8)
 			{
 				if (save_to_selected_path(&s) == 0)
 				{
+					free_background(&s);
 					curs_set(old_cursor);
 					return 0;
 				}
 			}
-			if (me.x >= x0 + 9 && me.x < x0 + 17)
+			if (me.x >= x0 + 11 && me.x < x0 + 19)
 			{
+				free_background(&s);
 				curs_set(old_cursor);
 				return -1;
 			}
