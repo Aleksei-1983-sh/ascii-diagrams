@@ -20,10 +20,14 @@ jobs:
           git config --global user.email "ai@bot.com"
 
       - name: Get PR branch
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh pr checkout ${{ github.event.issue.number }}
 
       - name: Collect review comments
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh pr view ${{ github.event.issue.number }} \
             --json reviews,comments > review.json
