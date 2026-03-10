@@ -1,46 +1,33 @@
-name: AI Review Fix
+name: Collect PR Review
 
 on:
   issue_comment:
     types: [created]
 
 jobs:
-  fix:
+  collect:
     if: contains(github.event.comment.body, '/ai-fix')
     runs-on: ubuntu-latest
 
+    env:
+      GH_TOKEN: ${{ github.token }}
+
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - name: Setup git
+      - name: Install GitHub CLI
         run: |
-          git config --global user.name "ai-bot"
-          git config --global user.email "ai@bot.com"
+          sudo apt update
+          sudo apt install gh -y
 
-      - name: Get PR branch
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh pr checkout ${{ github.event.issue.number }}
-
-      - name: Collect review comments
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Get PR review comments
         run: |
           gh pr view ${{ github.event.issue.number }} \
-            --json reviews,comments > review.json
+            --json comments,reviews,files > review.json
 
-      - name: Run Codex
-        run: |
-          codex fix \
-            --review review.json \
-            --style "K&R C" \
-            --apply
-
-      - name: Commit fixes
-        run: |
-          git add .
-          git commit -m "AI: fix review comments"
-          git push
+      - name: Upload review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-review
+          path: review.json
