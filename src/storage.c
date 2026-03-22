@@ -532,3 +532,63 @@ storage_save_world_diagram(const char *path)
 	free(canvas);
 	return rc;
 }
+
+
+int
+storage_save_diagram_ascii(const Diagram_t *diagram, const char *path)
+{
+	char *text;
+	FILE *fp;
+	int status;
+
+	if (diagram == NULL || path == NULL)
+		return -1;
+
+	text = NULL;
+	status = diagram_render_ascii(diagram, &text);
+	if (status != DIAGRAM_OK)
+		return -1;
+
+	fp = fopen(path, "w");
+	if (fp == NULL)
+	{
+		free(text);
+		fprintf(stderr, "Error: cannot open file for write: %s\n", path);
+		return -1;
+	}
+
+	fputs(text, fp);
+	fclose(fp);
+	free(text);
+	return 0;
+}
+
+int
+storage_save_diagram_json(const Diagram_t *diagram, const char *path)
+{
+	char *json;
+	FILE *fp;
+	int status;
+
+	if (diagram == NULL || path == NULL)
+		return -1;
+
+	json = NULL;
+	status = diagram_export_state_json(diagram, &json);
+	if (status != DIAGRAM_OK)
+		return -1;
+
+	fp = fopen(path, "w");
+	if (fp == NULL)
+	{
+		free(json);
+		fprintf(stderr, "Error: cannot open file for write: %s\n", path);
+		return -1;
+	}
+
+	fputs(json, fp);
+	fputc('\n', fp);
+	fclose(fp);
+	free(json);
+	return 0;
+}
