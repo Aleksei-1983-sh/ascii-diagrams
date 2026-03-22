@@ -234,7 +234,7 @@ save_to_selected_path(SaveDialogState_t *s)
 	if (s->background == NULL)
 		return -1;
 
-	return storage_save_visual(path, s->background, s->bg_w, s->bg_h);
+	return storage_save_world_diagram(path);
 }
 
 static void

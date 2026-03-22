@@ -3,5 +3,6 @@
 
 int storage_save_text(const char *path);
 int storage_save_visual(const char *path, const char *canvas, int canvas_w, int canvas_h);
+int storage_save_world_diagram(const char *path);
 
 #endif
