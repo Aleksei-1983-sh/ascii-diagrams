@@ -99,6 +99,70 @@ void destroy_rectangle(Rectangle_t *rect);
 - commands
 - storage
 
+## Current Project Structure
+
+```text
+.
+├── AGENTS.md
+├── AGENTS-old.md
+├── LICENSE
+├── Makefile
+├── README.md
+├── docs/
+│   └── PROJECT_LOGIC.txt
+├── log/
+│   └── asciiflow.log
+├── src/
+│   ├── asciiflow.c
+│   ├── config.h
+│   ├── conn.c
+│   ├── conn.h
+│   ├── debug.c
+│   ├── debug.h
+│   ├── input.c
+│   ├── panel.c
+│   ├── panel.h
+│   ├── rect.c
+│   ├── rect.h
+│   ├── save_dialog.c
+│   ├── save_dialog.h
+│   ├── storage.c
+│   ├── storage.h
+│   ├── ui.c
+│   └── ui.h
+├── asciiflow_linux
+├── diag_1.txt
+├── diag_2.txt
+└── safe.txt
+```
+
+## Current Module Responsibilities
+- `src/asciiflow.c` - minimal entry point: initializes `ncurses`, starts logging, runs `run_loop()`.
+- `src/input.c` - main event loop and interaction state: mouse, keyboard, dragging, resize, panning, edit mode, connection manipulation.
+- `src/ui.c` / `src/ui.h` - full screen rendering, viewport-aware drawing, composition of canvas, rectangles, connections and side panel.
+- `src/rect.c` / `src/rect.h` - rectangle storage and geometry: creation, lookup, hit-testing, resize handle, border points, text wrapping, draw helpers.
+- `src/conn.c` / `src/conn.h` - connection storage and rendering: add/remove, hit-testing, temporary preview, control points.
+- `src/panel.c` / `src/panel.h` - right-side inspector/editor panel for selected rectangle.
+- `src/save_dialog.c` / `src/save_dialog.h` - modal save dialog with directory browsing and filename input.
+- `src/storage.c` / `src/storage.h` - persistence layer: save logical diagram data and rendered ASCII canvas to file.
+- `src/debug.c` / `src/debug.h` - file logging subsystem with per-module macros and timestamps.
+- `src/config.h` - shared constants, limits, common includes and viewport globals.
+
+## Build And Runtime Notes
+- Main binary: `asciiflow_linux`
+- Build is currently driven by `Makefile`
+- Sources included in build:
+  `src/asciiflow.c`, `src/rect.c`, `src/conn.c`, `src/ui.c`, `src/panel.c`,
+  `src/input.c`, `src/debug.c`, `src/storage.c`, `src/save_dialog.c`
+- Current libraries: `ncurses`, `libm`
+- Runtime log path by default: `log/asciiflow.log`
+
+## Navigation Notes For Agents
+- Start architecture analysis from `src/asciiflow.c` -> `src/input.c` -> rendering/data modules.
+- Changes in interaction behavior usually touch `src/input.c`, `src/ui.c`, and one of `src/rect.c` or `src/conn.c`.
+- Persistence-related changes should stay isolated in `src/storage.c` and `src/save_dialog.c`.
+- Shared constants should be centralized in `src/config.h`; avoid duplicating limits in module code.
+
 ## Notes
 - Prefer static functions inside modules
 - Mark unfinished work with `TODO` / `FIXME`
