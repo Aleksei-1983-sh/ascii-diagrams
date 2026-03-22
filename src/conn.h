@@ -32,7 +32,11 @@ typedef struct conn
 } conn_t;
 
 void conn_add(int a, int b);
+int conn_add_pair(int a, int b);
 void conn_remove_at(int idx);
+int conn_remove_by_rect_pair(int a, int b);
+int conn_remove_by_rect_id(int rect_id);
+void conn_clear_all(void);
 int conn_count(void);
 conn_t *conn_get(int idx);
 int conn_hit_at(int mx, int my); /* ожидает world coords */

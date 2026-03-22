@@ -10,12 +10,24 @@
 #include "debug.h"
 #include "diagram.h"
 #include "agent_api.h"
+#include "agent_live_ui.h"
 
 void run_loop(void); /* declared in input.c */
 
 static int
-run_tui_mode(void)
+run_tui_mode(const char *agent_ui_base_path)
 {
+	if (agent_ui_base_path != NULL)
+	{
+		if (agent_live_ui_init(agent_ui_base_path) != 0)
+		{
+			fprintf(stderr, "Error: cannot initialize agent UI bridge\n");
+			return 1;
+		}
+		fprintf(stderr, "Agent UI input FIFO: %s\n", agent_live_ui_input_path());
+		fprintf(stderr, "Agent UI output FIFO: %s\n", agent_live_ui_output_path());
+	}
+
 	initscr();
 	cbreak();
 	noecho();
@@ -27,6 +39,8 @@ run_tui_mode(void)
 
 	run_loop();
 	endwin();
+	if (agent_ui_base_path != NULL)
+		agent_live_ui_shutdown();
 	return 0;
 }
 
@@ -76,14 +90,20 @@ int
 main(int argc, char **argv)
 {
 	if (argc == 1)
-		return run_tui_mode();
+		return run_tui_mode(NULL);
 
 	if (argc == 2 && strcmp(argv[1], "--agent") == 0)
 		return run_agent_stream(stdin, stdout);
 
+	if (argc == 2 && strcmp(argv[1], "--agent-ui") == 0)
+		return run_tui_mode("/tmp/asciiflow_agent_ui");
+
+	if (argc == 3 && strcmp(argv[1], "--agent-ui") == 0)
+		return run_tui_mode(argv[2]);
+
 	if (argc == 3 && strcmp(argv[1], "--script") == 0)
 		return run_script_mode(argv[2]);
 
-	fprintf(stderr, "Usage: %s [--agent | --script file.jsonl]\n", argv[0]);
+	fprintf(stderr, "Usage: %s [--agent | --agent-ui [base_path] | --script file.jsonl]\n", argv[0]);
 	return 1;
 }

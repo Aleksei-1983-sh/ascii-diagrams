@@ -14,6 +14,7 @@
 #include "panel.h"
 #include "debug.h"
 #include "save_dialog.h"
+#include "agent_live_ui.h"
 
 #include <string.h>
 #include <sys/time.h>
@@ -667,12 +668,20 @@ run_loop(void)
 	mouseinterval(0);
 	st.oldmask = mousemask(ALL_MOUSE_EVENTS | REPORT_MOUSE_POSITION, NULL);
 	enable_mouse_move();
+	timeout(agent_live_ui_enabled() ? 50 : -1);
+	redraw(&st);
 
 	unsigned long prev_bstate = 0;
 
 	for (;;)
 	{
 		ch = getch();
+		if (ch == ERR)
+		{
+			if (agent_live_ui_enabled() && agent_live_ui_poll())
+				redraw(&st);
+			continue;
+		}
 		if (ch == KEY_MOUSE)
 		{
 			if (getmouse(&me) == OK)
@@ -766,10 +775,11 @@ run_loop(void)
 			}
 		}
 
-		//		ui_draw_all(st.editing, st.edit_idx, st.conn_move_active,
-		//st.conn_selected, st.last_mouse_x, st.last_mouse_y);
+		if (agent_live_ui_enabled() && agent_live_ui_poll())
+			redraw(&st);
 	}
 
+	timeout(-1);
 	disable_mouse_move();
 	mousemask(st.oldmask, NULL);
 }

@@ -106,11 +106,11 @@ conn_clear_control_point(int idx)
 }
 
 /* Добавление/удаление/доступ */
-void
-conn_add(int a, int b)
+int
+conn_add_pair(int a, int b)
 {
 	if (conn_count_v >= MAX_CONNS)
-		return;
+		return -1;
 	conns[conn_count_v].a = a;
 	conns[conn_count_v].b = b;
 	conns[conn_count_v].has_control = 0;
@@ -122,6 +122,13 @@ conn_add(int a, int b)
 	conns[conn_count_v].point_conn_in.y = 0;
 	conn_count_v++;
 	LOG_CONN("conn_add a=%d b=%d idx=%d", a, b, conn_count_v - 1);
+	return conn_count_v - 1;
+}
+
+void
+conn_add(int a, int b)
+{
+	(void)conn_add_pair(a, b);
 }
 
 void
@@ -731,4 +738,47 @@ conn_hit_at(int mx, int my)
 		}
 	}
 	return -1;
+}
+
+int
+conn_remove_by_rect_pair(int a, int b)
+{
+	int i;
+
+	for (i = 0; i < conn_count_v; ++i)
+	{
+		if (conns[i].a == a && conns[i].b == b)
+		{
+			conn_remove_at(i);
+			return 0;
+		}
+	}
+	return -1;
+}
+
+int
+conn_remove_by_rect_id(int rect_id)
+{
+	int i;
+	int removed;
+
+	removed = 0;
+	for (i = 0; i < conn_count_v; )
+	{
+		if (conns[i].a == rect_id || conns[i].b == rect_id)
+		{
+			conn_remove_at(i);
+			removed++;
+			continue;
+		}
+		i++;
+	}
+	return removed;
+}
+
+void
+conn_clear_all(void)
+{
+	conn_count_v = 0;
+	memset(conns, 0, sizeof(conns));
 }

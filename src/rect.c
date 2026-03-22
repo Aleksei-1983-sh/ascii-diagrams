@@ -590,3 +590,64 @@ rect_move_to_tail(int idx)
 	append_node(n);
 	LOG_RECT("rect_move_to_tail id=%d new_tail (count=%d)", n->r.id, rect_count_v);
 }
+
+int
+rect_remove_by_id(int id)
+{
+	RectNode *n = node_by_id(id);
+
+	if (!n)
+		return -1;
+	unlink_node(n);
+	free_node(n);
+	if (rect_count_v > 0)
+		rect_count_v--;
+	return 0;
+}
+
+void
+rect_clear_all(void)
+{
+	int i;
+
+	for (i = 0; i < MAX_RECTS; ++i)
+		nodes_pool[i].used = 0;
+	head = NULL;
+	tail = NULL;
+	rect_count_v = 0;
+	next_id = 1;
+}
+
+int
+rect_add_full(int forced_id, int x, int y, int w, int h, const char *title, const char *text)
+{
+	RectNode *n = alloc_node();
+
+	if (!n)
+	{
+		LOG_RECT("rect_add_full: pool exhausted (max %d)", MAX_RECTS);
+		return -1;
+	}
+
+	n->r.id = forced_id > 0 ? forced_id : next_id++;
+	if (forced_id >= next_id)
+		next_id = forced_id + 1;
+	n->r.x = x;
+	n->r.y = y;
+	n->r.w = w < MIN_W ? MIN_W : w;
+	n->r.h = h < MIN_H ? MIN_H : h;
+	n->r.text[0] = '\0';
+	n->r.title[0] = '\0';
+	if (text != NULL)
+		snprintf(n->r.text, sizeof(n->r.text), "%s", text);
+	if (title != NULL)
+		snprintf(n->r.title, sizeof(n->r.title), "%s", title);
+	n->r.parent_id = -1;
+	n->r.offset_x = 0;
+	n->r.offset_y = 0;
+	rect_clamp(&n->r);
+	append_node(n);
+	rect_count_v++;
+	LOG_RECT("rect_add_full id=%d at %d,%d (count=%d)", n->r.id, x, y, rect_count_v);
+	return n->r.id;
+}

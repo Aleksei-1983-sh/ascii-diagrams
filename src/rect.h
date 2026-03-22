@@ -36,6 +36,9 @@ typedef struct Rect
 
 /* управление блоками */
 void rect_add(int x, int y);
+int rect_add_full(int forced_id, int x, int y, int w, int h, const char *title, const char *text);
+int rect_remove_by_id(int id);
+void rect_clear_all(void);
 int rect_count(void);
 
 /* Возвращает указатель на Rect по порядковому индексу (0..count-1).
