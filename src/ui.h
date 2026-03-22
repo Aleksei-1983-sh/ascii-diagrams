@@ -5,8 +5,7 @@
 #ifndef ASCIIFLOW_UI_H
 #define ASCIIFLOW_UI_H
 #include "config.h"
-#include "rect.h"
-#include "conn.h"
+#include "diagram.h"
 #include "panel.h"
 #include "debug.h"
 

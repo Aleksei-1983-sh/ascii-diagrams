@@ -8,8 +8,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 #include "config.h"
-#include "rect.h"
-#include "conn.h"
+#include "app_state.h"
 #include "ui.h"
 #include "panel.h"
 #include "debug.h"
@@ -62,10 +61,10 @@ typedef struct
 	int resize_idx;
 
 	/* соединения */
-	int conn_start_id;
+	char conn_start_id[DIAGRAM_ID_MAX];
 	int conn_selected;
 	int conn_move_active;
-	int conn_move_orig_b;
+	char conn_move_orig_b[DIAGRAM_ID_MAX];
 
 	/* ... в struct InputState ... */
 	/* перетаскивание соединения */
@@ -115,9 +114,9 @@ input_state_init(InputState *s)
 	s->resize_idx = -1;
 	s->conn_dragging = 0;
 	s->conn_drag_idx = -1;
-	s->conn_start_id = -1;
+	s->conn_start_id[0] = '\0';
 	s->conn_selected = -1;
-	s->conn_move_orig_b = -1;
+	s->conn_move_orig_b[0] = '\0';
 	s->last_left_click_time_ms = 0;
 	s->last_left_click_idx = -1;
 	s->last_right_click_time_ms = 0;
@@ -186,17 +185,17 @@ update_edit_cursor(InputState *s)
 {
 	if (!s->editing || s->edit_idx < 0)
 		return;
-	Rect *r = rect_get(s->edit_idx);
+	DiagramRect_t *r = app_rect_get(s->edit_idx);
 	if (!r)
 		return;
-	int inner_w = r->w - 2;
-	int inner_h = r->h - 2;
+	int inner_w = r->width - 2;
+	int inner_h = r->height - 2;
 	if (inner_w < 1)
 		inner_w = 1;
 	if (inner_h < 1)
 		inner_h = 1;
 	char lines[64][256];
-	int n = rect_wrap_text(r->text, inner_w, lines, inner_h);
+	int n = app_wrap_text(r->body, inner_w, lines, inner_h);
 	int lastline = 0, lastlen = 0;
 	if (n > 0)
 	{
@@ -216,7 +215,7 @@ update_edit_cursor(InputState *s)
 static void
 enter_edit_mode(InputState *s, int idx)
 {
-	if (idx < 0 || idx >= rect_count())
+	if (idx < 0 || idx >= app_rect_count())
 		return;
 	s->editing = 1;
 	s->edit_idx = idx;
@@ -252,7 +251,15 @@ handle_left_pressed(InputState *s, int mx, int my, int buttons)
 
 	if (mx >= bx && mx < bx + blen && my == by)
 	{
-		rect_add(10 + (rect_count() % 6) * 3, 6 + (rect_count() % 6) * 1);
+		do {
+			DiagramRect_t rect = {0};
+			app_make_rect_id(rect.id, sizeof(rect.id));
+			rect.x = 10 + (app_rect_count() % 6) * 3;
+			rect.y = 6 + (app_rect_count() % 6) * 1;
+			rect.width = 14;
+			rect.height = 5;
+			diagram_add_rect(&app_state_get()->diagram, &rect);
+		} while (0);
 		ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected,
 			    s->last_mouse_x, s->last_mouse_y);
 		return;
@@ -266,18 +273,18 @@ handle_left_pressed(InputState *s, int mx, int my, int buttons)
 		return;
 	}
 
-	int idx = rect_id_get(wx, wy); /* rect_id_get expects world coords */
+	int idx = app_rect_index_at(wx, wy);
 	if (idx >= 0)
 	{
-		Rect *r_before = rect_get(idx);
+		DiagramRect_t *r_before = app_rect_get(idx);
 		if (!r_before)
 			return;
 
-		if (rect_hit_resize_handle(r_before, wx, wy))
+		if (app_rect_hit_resize_handle(r_before, wx, wy))
 		{
 			s->resizing = 1;
 			s->resize_idx = idx;
-			LOG_INPUT("resize start idx=%d id=%d", idx, r_before->id);
+			LOG_INPUT("resize start idx=%d id=%s", idx, r_before->id);
 			return;
 		}
 
@@ -286,7 +293,7 @@ handle_left_pressed(InputState *s, int mx, int my, int buttons)
 		if (s->last_left_click_idx == idx &&
 		    (t - s->last_left_click_time_ms) <= DOUBLE_CLICK_MS)
 		{
-			LOG_INPUT("double click idx=%d id=%d", idx, r_before->id);
+			LOG_INPUT("double click idx=%d id=%s", idx, r_before->id);
 			enter_edit_mode(s, idx);
 			s->dragging = 0;
 			s->drag_idx = -1;
@@ -294,9 +301,9 @@ handle_left_pressed(InputState *s, int mx, int my, int buttons)
 		}
 
 		/* begin drag: first bring to front */
-		rect_move_to_tail(idx);
-		int new_idx = rect_count() - 1;
-		Rect *r = rect_get(new_idx);
+		app_rect_move_to_end(idx);
+		int new_idx = app_rect_count() - 1;
+		DiagramRect_t *r = app_rect_get(new_idx);
 		if (!r)
 			return;
 		s->dragging = 1;
@@ -306,7 +313,7 @@ handle_left_pressed(InputState *s, int mx, int my, int buttons)
 		s->drag_offy = wy - r->y;
 		s->last_left_click_time_ms = t;
 		s->last_left_click_idx = new_idx;
-		LOG_INPUT("drag start new_idx=%d id=%d off=%d,%d", new_idx, r->id, s->drag_offx,
+		LOG_INPUT("drag start new_idx=%d id=%s off=%d,%d", new_idx, r->id, s->drag_offx,
 			  s->drag_offy);
 		return;
 	}
@@ -352,25 +359,15 @@ handle_mouse_move_or_hold(InputState *s, int mx, int my)
 		return;
 	}
 
-	/* connection dragging */
-	if (s->conn_dragging && s->conn_drag_idx >= 0)
-	{
-		int wx, wy;
-		screen_to_world_point(mx, my, &wx, &wy);
-		conn_set_control_point(s->conn_drag_idx, wx, wy);
-		redraw(s);
-		return;
-	}
-
 	/* перетаскивание блока */
 	if (s->dragging && s->drag_idx >= 0)
 	{
-		Rect *r = rect_get(s->drag_idx);
+		DiagramRect_t *r = app_rect_get(s->drag_idx);
 		if (r)
 		{
 			r->x = wx - s->drag_offx;
 			r->y = wy - s->drag_offy;
-			rect_clamp(r);
+			app_rect_clamp(r);
 			redraw(s);
 		}
 	}
@@ -378,12 +375,12 @@ handle_mouse_move_or_hold(InputState *s, int mx, int my)
 	/* изменение размера */
 	if (s->resizing && s->resize_idx >= 0)
 	{
-		Rect *r = rect_get(s->resize_idx);
+		DiagramRect_t *r = app_rect_get(s->resize_idx);
 		if (!r)
 			return;
-		r->w = (wx - r->x) + 1;
-		r->h = (wy - r->y) + 1;
-		rect_clamp(r);
+		r->width = (wx - r->x) + 1;
+		r->height = (wy - r->y) + 1;
+		app_rect_clamp(r);
 		redraw(s);
 	}
 }
@@ -416,10 +413,10 @@ handle_right_double_click(InputState *s, int mx, int my)
 {
 	int wx, wy;
 	screen_to_world_point(mx, my, &wx, &wy);
-	int cidx = conn_hit_at(wx, wy);
+	int cidx = app_conn_hit_at(wx, wy);
 	if (cidx >= 0)
 	{
-		conn_remove_at(cidx);
+		app_conn_remove_at(cidx);
 		redraw(s);
 	}
 }
@@ -429,40 +426,44 @@ handle_right_pressed(InputState *s, int mx, int my)
 {
 	int wx, wy;
 	screen_to_world_point(mx, my, &wx, &wy);
-	int cidx = conn_hit_at(wx, wy);
+	int cidx = app_conn_hit_at(wx, wy);
 	if (cidx >= 0)
 	{
 		s->conn_selected = cidx;
 		s->conn_move_active = 1;
-		s->conn_move_orig_b = conn_get(cidx)->b;
+		snprintf(s->conn_move_orig_b, sizeof(s->conn_move_orig_b), "%s", app_conn_get(cidx)->to_rect_id);
 		s->last_right_click_time_ms = now_ms();
 		s->last_right_click_conn = cidx;
 		redraw(s);
 		return;
 	}
 
-	int idx = rect_id_get(wx, wy);
+	int idx = app_rect_index_at(wx, wy);
 	if (idx >= 0)
 	{
-		if (s->conn_start_id == -1)
+		if (s->conn_start_id[0] == '\0')
 		{
-			s->conn_start_id = rect_get(idx)->id;
-			mvprintw(0, 2, "Connection start: Box %d   ", s->conn_start_id);
+			snprintf(s->conn_start_id, sizeof(s->conn_start_id), "%s", app_rect_get(idx)->id);
+			mvprintw(0, 2, "Connection start: %s   ", s->conn_start_id);
 			refresh();
 		}
 		else
 		{
-			int a = s->conn_start_id;
-			int b = rect_get(idx)->id;
-			if (a != b)
-				conn_add(a, b);
-			s->conn_start_id = -1;
+			DiagramConn_t conn = {0};
+			app_make_conn_id(conn.id, sizeof(conn.id));
+			snprintf(conn.from_rect_id, sizeof(conn.from_rect_id), "%s", s->conn_start_id);
+			snprintf(conn.to_rect_id, sizeof(conn.to_rect_id), "%s", app_rect_get(idx)->id);
+			conn.from_side = ANCHOR_AUTO;
+			conn.to_side = ANCHOR_AUTO;
+			if (strcmp(conn.from_rect_id, conn.to_rect_id) != 0)
+				diagram_add_conn(&app_state_get()->diagram, &conn);
+			s->conn_start_id[0] = '\0';
 			redraw(s);
 		}
 	}
 	else
 	{
-		s->conn_start_id = -1;
+		s->conn_start_id[0] = '\0';
 		redraw(s);
 	}
 }
@@ -477,23 +478,23 @@ handle_right_released(InputState *s, int mx, int my)
 
 	if (s->conn_move_active && s->conn_selected >= 0)
 	{
-		int over_idx = rect_id_get(wx, wy);
+		int over_idx = app_rect_index_at(wx, wy);
 		if (over_idx >= 0)
 		{
-			int a_id = conn_get(s->conn_selected)->a;
-			int target_id = rect_get(over_idx)->id;
-			if (target_id != a_id)
-				conn_get(s->conn_selected)->b = target_id;
+			DiagramConn_t *conn = app_conn_get(s->conn_selected);
+			const char *target_id = app_rect_get(over_idx)->id;
+			if (strcmp(target_id, conn->from_rect_id) != 0)
+				snprintf(conn->to_rect_id, sizeof(conn->to_rect_id), "%s", target_id);
 			else
-				conn_get(s->conn_selected)->b = s->conn_move_orig_b;
+				snprintf(conn->to_rect_id, sizeof(conn->to_rect_id), "%s", s->conn_move_orig_b);
 		}
 		else
 		{
-			conn_get(s->conn_selected)->b = s->conn_move_orig_b;
+			snprintf(app_conn_get(s->conn_selected)->to_rect_id, sizeof(app_conn_get(s->conn_selected)->to_rect_id), "%s", s->conn_move_orig_b);
 		}
 		s->conn_move_active = 0;
 		s->conn_selected = -1;
-		s->conn_move_orig_b = -1;
+		s->conn_move_orig_b[0] = '\0';
 		redraw(s);
 	}
 }
@@ -537,7 +538,7 @@ handle_edit_keys(InputState *s, int ch)
 {
 	if (!s->editing || s->edit_idx < 0)
 		return 0;
-	Rect *er = rect_get(s->edit_idx);
+	DiagramRect_t *er = app_rect_get(s->edit_idx);
 	if (!er)
 		return 0;
 
@@ -557,7 +558,7 @@ handle_edit_keys(InputState *s, int ch)
 		}
 		if (ch == KEY_BACKSPACE || ch == 127 || ch == 8)
 		{
-			if (erase_last_char(er->text))
+			if (erase_last_char(er->body))
 			{
 				redraw(s);
 				update_edit_cursor(s);
@@ -567,7 +568,7 @@ handle_edit_keys(InputState *s, int ch)
 
 		if (ch == 14)
 		{ /* Ctrl+N */
-			if (append_char(er->text, MAX_TEXT_LEN, '\n'))
+			if (append_char(er->body, MAX_TEXT_LEN, '\n'))
 			{
 				redraw(s);
 				update_edit_cursor(s);
@@ -583,7 +584,7 @@ handle_edit_keys(InputState *s, int ch)
 		}
 		if (isprint(ch))
 		{
-			if (append_char(er->text, MAX_TEXT_LEN, ch))
+			if (append_char(er->body, MAX_TEXT_LEN, ch))
 			{
 				redraw(s);
 				update_edit_cursor(s);
@@ -607,7 +608,7 @@ handle_edit_keys(InputState *s, int ch)
 		}
 		if (isprint(ch))
 		{
-			if (append_char(er->title, MAX_TITLE_LEN, ch))
+			if (append_char(er->title, DIAGRAM_TITLE_MAX, ch))
 				redraw(s);
 			return 1;
 		}
@@ -619,29 +620,29 @@ handle_edit_keys(InputState *s, int ch)
 		}
 		if (ch == '+')
 		{
-			er->w += 1;
-			rect_clamp(er);
+			er->width += 1;
+			app_rect_clamp(er);
 			redraw(s);
 			return 1;
 		}
 		if (ch == '-')
 		{
-			er->w -= 1;
-			rect_clamp(er);
+			er->width -= 1;
+			app_rect_clamp(er);
 			redraw(s);
 			return 1;
 		}
 		if (ch == '*')
 		{
-			er->h += 1;
-			rect_clamp(er);
+			er->height += 1;
+			app_rect_clamp(er);
 			redraw(s);
 			return 1;
 		}
 		if (ch == '/')
 		{
-			er->h -= 1;
-			rect_clamp(er);
+			er->height -= 1;
+			app_rect_clamp(er);
 			redraw(s);
 			return 1;
 		}

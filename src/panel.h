@@ -5,9 +5,9 @@
 #ifndef ASCIIFLOW_PANEL_H
 #define ASCIIFLOW_PANEL_H
 #include "config.h"
-#include "rect.h"
+#include "diagram.h"
 #include "debug.h"
 
-void panel_draw(Rect *r);
+void panel_draw(const DiagramRect_t *rect);
 
 #endif

@@ -9,6 +9,7 @@
 #include "panel.h"
 #include "debug.h"
 #include "diagram.h"
+#include "app_state.h"
 #include "agent_api.h"
 #include "agent_live_ui.h"
 
@@ -17,6 +18,12 @@ void run_loop(void); /* declared in input.c */
 static int
 run_tui_mode(const char *agent_ui_base_path)
 {
+	if (app_state_init() != DIAGRAM_OK)
+	{
+		fprintf(stderr, "Error: cannot initialize app state\n");
+		return 1;
+	}
+
 	if (agent_ui_base_path != NULL)
 	{
 		if (agent_live_ui_init(agent_ui_base_path) != 0)
@@ -41,6 +48,7 @@ run_tui_mode(const char *agent_ui_base_path)
 	endwin();
 	if (agent_ui_base_path != NULL)
 		agent_live_ui_shutdown();
+	app_state_destroy();
 	return 0;
 }
 

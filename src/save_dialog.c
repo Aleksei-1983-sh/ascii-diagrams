@@ -8,6 +8,7 @@
 
 #include "save_dialog.h"
 #include "storage.h"
+#include "app_state.h"
 #include "config.h"
 #include "ui.h"
 
@@ -234,7 +235,7 @@ save_to_selected_path(SaveDialogState_t *s)
 	if (s->background == NULL)
 		return -1;
 
-	return storage_save_world_diagram(path);
+	return storage_save_diagram_ascii(&app_state_get()->diagram, path);
 }
 
 static void
