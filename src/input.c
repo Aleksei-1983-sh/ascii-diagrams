@@ -411,19 +411,6 @@ handle_left_released(InputState *s)
 
 /* RIGHT handlers unchanged (they use world conversions when necessary) */
 static void
-handle_right_double_click(InputState *s, int mx, int my)
-{
-	int wx, wy;
-	screen_to_world_point(mx, my, &wx, &wy);
-	int cidx = conn_hit_at(wx, wy);
-	if (cidx >= 0)
-	{
-		conn_remove_at(cidx);
-		redraw(s);
-	}
-}
-
-static void
 handle_right_pressed(InputState *s, int mx, int my)
 {
 	int wx, wy;

@@ -56,9 +56,10 @@ void
 ui_draw_all(int editing, int edit_idx, int conn_move_active, int conn_selected, int last_mouse_x,
 	    int last_mouse_y)
 {
-	int term_w, term_h;
+	int term_h, term_w;
 	erase();
 	getmaxyx(stdscr, term_h, term_w);
+	(void)term_w;
 
 	/* верхняя панель */
 	draw_button();
