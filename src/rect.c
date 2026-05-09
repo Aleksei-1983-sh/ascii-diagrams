@@ -54,14 +54,6 @@ alloc_node(void)
 }
 
 /* Вспомог: освободить узел (пометить как свободный) */
-static void
-free_node(RectNode *n)
-{
-	if (!n)
-		return;
-	n->used = 0;
-	n->prev = n->next = NULL;
-}
 
 /* Вспомог: найти узел по порядковому индексу (итерируем от head) */
 static RectNode *
@@ -452,8 +444,7 @@ rect_draw_rect(Rect *r)
 	if (sx + w <= 0 || sy + h <= 0 || sx >= COLS || sy >= LINES)
 		return;
 
-/* безопасная отрисовка — проверяем координаты перед каждой mvaddch */
-auto_safe:
+	/* безопасная отрисовка — проверяем координаты перед каждой mvaddch */
 	mvaddch(sy, sx, '*');
 	if (sx + w - 1 >= 0 && sx + w - 1 < COLS)
 		mvaddch(sy, sx + w - 1, '*');

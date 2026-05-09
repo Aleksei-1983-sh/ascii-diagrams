@@ -8,8 +8,8 @@
 void
 panel_draw(Rect *r)
 {
-	int term_w = COLS, term_h = LINES;
 	int panel_w = 30;
+	int term_w = COLS;
 	int panel_x = term_w - panel_w - 1;
 	if (panel_x < r->x + r->w + 2)
 		panel_x = r->x + r->w + 2;

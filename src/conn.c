@@ -723,10 +723,9 @@ conn_hit_at(int mx, int my)
 		else
 		{
 			/* default elbow at (ax,by) */
-			int ex = ax, ey = by;
-			if (mx == ax && between_i(my, ay, ey))
+			if (mx == ax && between_i(my, ay, by))
 				return i;
-			if (my == ey && between_i(mx, ax, bx))
+			if (my == by && between_i(mx, ax, bx))
 				return i;
 		}
 	}
