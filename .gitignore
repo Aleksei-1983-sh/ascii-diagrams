@@ -1,43 +1,32 @@
 ```
-# Compiled files
+# Compiled and build artifacts
 *.o
 *.obj
 *.out
-
-# Build artifacts
-build/
-dist/
+asciiflow_linux
 
 # Dependencies
 node_modules/
 venv/
 .venv/
 __pycache__/
-*.egg-info/
+.mypy_cache/
+.pytest_cache/
+dist/
+build/
+target/
 
-# Editors
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Logs
+# Logs and temp files
 *.log
+*.tmp
+*.swp
 
 # Environment
 .env
 .env.local
 *.env.*
 
-# Temp files
-*.tmp
-
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# OS
-.DS_Store
-Thumbs.db
+# Editors
+.vscode/
+.idea/
 ```
