@@ -1,13 +1,13 @@
 ```
 # Compiled and binary files
-*.o
-*.obj
-*.a
-*.so
-*.dll
-*.exe
 *.pyc
 *.class
+*.o
+*.exe
+*.dll
+*.so
+*.a
+*.obj
 *.out
 
 # Dependencies
@@ -15,17 +15,12 @@ node_modules/
 venv/
 .venv/
 __pycache__/
+dist/
+build/
 .mypy_cache/
 .pytest_cache/
 target/
 .gradle/
-
-# Build artifacts
-build/
-dist/
-coverage/
-htmlcov/
-*.egg-info/
 
 # Editors and IDEs
 .vscode/
@@ -34,15 +29,18 @@ htmlcov/
 *.swo
 *.tmp
 
-# System files
+# System and environment
 .DS_Store
 Thumbs.db
 .env
 .env.local
 *.env.*
 
-# Logs
+# Logs and coverage
 *.log
+coverage/
+htmlcov/
+.coverage
 
 # Compressed files
 *.zip
@@ -67,4 +65,7 @@ Thumbs.db
 *.tar.bz2
 *.tar.xz
 *.tar.zst
+
+# Linux executable
+asciiflow_linux
 ```
