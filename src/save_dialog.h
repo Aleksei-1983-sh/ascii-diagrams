@@ -2,5 +2,6 @@
 #define ASCIIFLOW_SAVE_DIALOG_H
 
 int save_dialog_open(void);
+int load_dialog_open(void);
 
 #endif
