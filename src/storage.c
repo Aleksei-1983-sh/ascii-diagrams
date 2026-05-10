@@ -1,6 +1,5 @@
 #include "storage.h"
-#include "rect.h"
-#include "conn.h"
+#include "app_state.h"
 #include "config.h"
 
 #include <stdio.h>
@@ -134,7 +133,7 @@ draw_vertical_segment(char *canvas, int canvas_w, int canvas_h, int x, int y0, i
 }
 
 static int
-rects_overlap(const Rect *a, const Rect *b)
+rects_overlap(const DiagramRect_t *a, const DiagramRect_t *b)
 {
 	int a_right;
 	int a_bottom;
@@ -144,10 +143,10 @@ rects_overlap(const Rect *a, const Rect *b)
 	if (a == NULL || b == NULL)
 		return 0;
 
-	a_right = a->x + a->w - 1;
-	a_bottom = a->y + a->h - 1;
-	b_right = b->x + b->w - 1;
-	b_bottom = b->y + b->h - 1;
+	a_right = a->x + a->width - 1;
+	a_bottom = a->y + a->height - 1;
+	b_right = b->x + b->width - 1;
+	b_bottom = b->y + b->height - 1;
 
 	if (a_right < b->x || b_right < a->x)
 		return 0;
@@ -157,22 +156,25 @@ rects_overlap(const Rect *a, const Rect *b)
 	return 1;
 }
 
-static Rect *
-find_rect_by_id(int id)
+static DiagramRect_t *
+find_rect_by_id(const char *id)
 {
 	int i;
 
-	for (i = 0; i < rect_count(); ++i)
+	if (id == NULL)
+		return NULL;
+
+	for (i = 0; i < app_rect_count(); ++i)
 	{
-		Rect *r = rect_get(i);
-		if (r != NULL && r->id == id)
+		DiagramRect_t *r = app_rect_get(i);
+		if (r != NULL && strcmp(r->id, id) == 0)
 			return r;
 	}
 	return NULL;
 }
 
 static void
-render_rect(char *canvas, int canvas_w, int canvas_h, Rect *r)
+render_rect(char *canvas, int canvas_w, int canvas_h, DiagramRect_t *r)
 {
 	int i;
 	int j;
@@ -188,40 +190,40 @@ render_rect(char *canvas, int canvas_w, int canvas_h, Rect *r)
 		return;
 
 	canvas_put_char(canvas, canvas_w, canvas_h, r->x, r->y, '*');
-	canvas_put_char(canvas, canvas_w, canvas_h, r->x + r->w - 1, r->y, '*');
-	canvas_put_char(canvas, canvas_w, canvas_h, r->x, r->y + r->h - 1, '*');
-	canvas_put_char(canvas, canvas_w, canvas_h, r->x + r->w - 1, r->y + r->h - 1, '*');
+	canvas_put_char(canvas, canvas_w, canvas_h, r->x + r->width - 1, r->y, '*');
+	canvas_put_char(canvas, canvas_w, canvas_h, r->x, r->y + r->height - 1, '*');
+	canvas_put_char(canvas, canvas_w, canvas_h, r->x + r->width - 1, r->y + r->height - 1, '*');
 
-	for (i = 1; i < r->w - 1; ++i)
+	for (i = 1; i < r->width - 1; ++i)
 	{
 		canvas_put_char(canvas, canvas_w, canvas_h, r->x + i, r->y, '-');
-		canvas_put_char(canvas, canvas_w, canvas_h, r->x + i, r->y + r->h - 1, '-');
+		canvas_put_char(canvas, canvas_w, canvas_h, r->x + i, r->y + r->height - 1, '-');
 	}
-	for (j = 1; j < r->h - 1; ++j)
+	for (j = 1; j < r->height - 1; ++j)
 	{
 		canvas_put_char(canvas, canvas_w, canvas_h, r->x, r->y + j, '|');
-		canvas_put_char(canvas, canvas_w, canvas_h, r->x + r->w - 1, r->y + j, '|');
+		canvas_put_char(canvas, canvas_w, canvas_h, r->x + r->width - 1, r->y + j, '|');
 	}
 
 	if (r->title[0] != '\0')
 		snprintf(label, sizeof(label), "%s", r->title);
 	else
-		snprintf(label, sizeof(label), "Box %d", r->id);
+		snprintf(label, sizeof(label), "Box %s", r->id);
 
 	label_len = (int)strlen(label);
-	if (label_len > r->w - 2)
-		label_len = r->w - 2;
-	label_x = r->x + (r->w - label_len) / 2;
+	if (label_len > r->width - 2)
+		label_len = r->width - 2;
+	label_x = r->x + (r->width - label_len) / 2;
 	if (label_x <= r->x)
 		label_x = r->x + 1;
 	canvas_put_text(canvas, canvas_w, canvas_h, label_x, r->y, label, label_len);
 
-	inner_w = r->w - 2;
-	inner_h = r->h - 2;
+	inner_w = r->width - 2;
+	inner_h = r->height - 2;
 	if (inner_w <= 0 || inner_h <= 0)
 		return;
 
-	n = rect_wrap_text(r->text, inner_w, lines, inner_h);
+	n = app_wrap_text(r->body, inner_w, lines, inner_h);
 	for (i = 0; i < inner_h; ++i)
 	{
 		int y = r->y + 1 + i;
@@ -246,12 +248,14 @@ render_rect(char *canvas, int canvas_w, int canvas_h, Rect *r)
 }
 
 static void
-render_conn(char *canvas, int canvas_w, int canvas_h, conn_t *c)
+render_conn(char *canvas, int canvas_w, int canvas_h, const DiagramConn_t *c)
 {
-	Rect *ra;
-	Rect *rb;
-	point_t pA;
-	point_t pB;
+	const DiagramRect_t *ra;
+	const DiagramRect_t *rb;
+	int pAx;
+	int pAy;
+	int pBx;
+	int pBy;
 	int a_top;
 	int a_bottom;
 	int b_top;
@@ -268,8 +272,8 @@ render_conn(char *canvas, int canvas_w, int canvas_h, conn_t *c)
 	if (c == NULL)
 		return;
 
-	ra = find_rect_by_id(c->a);
-	rb = find_rect_by_id(c->b);
+	ra = find_rect_by_id(c->from_rect_id);
+	rb = find_rect_by_id(c->to_rect_id);
 	if (ra == NULL || rb == NULL)
 		return;
 	if (ra == rb)
@@ -277,100 +281,98 @@ render_conn(char *canvas, int canvas_w, int canvas_h, conn_t *c)
 	if (rects_overlap(ra, rb))
 		return;
 
-	rect_get_border_point(ra, rb->x + rb->w / 2, rb->y + rb->h / 2, &pA.x, &pA.y);
-	rect_get_border_point(rb, ra->x + ra->w / 2, ra->y + ra->h / 2, &pB.x, &pB.y);
-	c->point_conn_out = pA;
-	c->point_conn_in = pB;
+	app_rect_get_border_point(ra, rb->x + rb->width / 2, rb->y + rb->height / 2, &pAx, &pAy);
+	app_rect_get_border_point(rb, ra->x + ra->width / 2, ra->y + ra->height / 2, &pBx, &pBy);
 
-	if (ra->x + ra->w - 1 < rb->x)
+	if (ra->x + ra->width - 1 < rb->x)
 	{
 		a_top = ra->y + 1;
-		a_bottom = ra->y + ra->h - 2;
+		a_bottom = ra->y + ra->height - 2;
 		b_top = rb->y + 1;
-		b_bottom = rb->y + rb->h - 2;
+		b_bottom = rb->y + rb->height - 2;
 		inter_top = a_top > b_top ? a_top : b_top;
 		inter_bottom = a_bottom < b_bottom ? a_bottom : b_bottom;
 		if (inter_top <= inter_bottom)
 		{
 			int y = (inter_top + inter_bottom) / 2;
 			draw_horizontal_between_borders(canvas, canvas_w, canvas_h,
-						      ra->x + ra->w - 1, rb->x, y, +1);
+						      ra->x + ra->width - 1, rb->x, y, +1);
 			return;
 		}
 	}
 
-	if (rb->x + rb->w - 1 < ra->x)
+	if (rb->x + rb->width - 1 < ra->x)
 	{
 		a_top = ra->y + 1;
-		a_bottom = ra->y + ra->h - 2;
+		a_bottom = ra->y + ra->height - 2;
 		b_top = rb->y + 1;
-		b_bottom = rb->y + rb->h - 2;
+		b_bottom = rb->y + rb->height - 2;
 		inter_top = a_top > b_top ? a_top : b_top;
 		inter_bottom = a_bottom < b_bottom ? a_bottom : b_bottom;
 		if (inter_top <= inter_bottom)
 		{
 			int y = (inter_top + inter_bottom) / 2;
 			draw_horizontal_between_borders(canvas, canvas_w, canvas_h,
-						      rb->x + rb->w - 1, ra->x, y, -1);
+						      rb->x + rb->width - 1, ra->x, y, -1);
 			return;
 		}
 	}
 
-	if (ra->y + ra->h - 1 < rb->y)
+	if (ra->y + ra->height - 1 < rb->y)
 	{
 		a_left = ra->x + 1;
-		a_right = ra->x + ra->w - 2;
+		a_right = ra->x + ra->width - 2;
 		b_left = rb->x + 1;
-		b_right = rb->x + rb->w - 2;
+		b_right = rb->x + rb->width - 2;
 		inter_left = a_left > b_left ? a_left : b_left;
 		inter_right = a_right < b_right ? a_right : b_right;
 		if (inter_left <= inter_right)
 		{
 			int x = (inter_left + inter_right) / 2;
 			draw_vertical_between_borders(canvas, canvas_w, canvas_h, x,
-						    ra->y + ra->h - 1, rb->y, +1);
+						      ra->y + ra->height - 1, rb->y, +1);
 			return;
 		}
 	}
 
-	if (rb->y + rb->h - 1 < ra->y)
+	if (rb->y + rb->height - 1 < ra->y)
 	{
 		a_left = ra->x + 1;
-		a_right = ra->x + ra->w - 2;
+		a_right = ra->x + ra->width - 2;
 		b_left = rb->x + 1;
-		b_right = rb->x + rb->w - 2;
+		b_right = rb->x + rb->width - 2;
 		inter_left = a_left > b_left ? a_left : b_left;
 		inter_right = a_right < b_right ? a_right : b_right;
 		if (inter_left <= inter_right)
 		{
 			int x = (inter_left + inter_right) / 2;
 			draw_vertical_between_borders(canvas, canvas_w, canvas_h, x,
-						    rb->y + rb->h - 1, ra->y, -1);
+						      rb->y + rb->height - 1, ra->y, -1);
 			return;
 		}
 	}
 
-	if (c->has_control)
+	if (c->has_manual_points)
 	{
-		int cx = c->point_control.x;
-		int cy = c->point_control.y;
+		int cx = c->p1x;
+		int cy = c->p1y;
 
-		draw_vertical_segment(canvas, canvas_w, canvas_h, pA.x, pA.y, cy);
-		canvas_put_char(canvas, canvas_w, canvas_h, pA.x, cy, '+');
-		draw_horizontal_between_borders(canvas, canvas_w, canvas_h, pA.x, cx, cy,
-						      cx >= pA.x ? +1 : -1);
+		draw_vertical_segment(canvas, canvas_w, canvas_h, pAx, pAy, cy);
+		canvas_put_char(canvas, canvas_w, canvas_h, pAx, cy, '+');
+		draw_horizontal_between_borders(canvas, canvas_w, canvas_h, pAx, cx, cy,
+						cx >= pAx ? +1 : -1);
 
-		draw_vertical_segment(canvas, canvas_w, canvas_h, cx, cy, pB.y);
-		canvas_put_char(canvas, canvas_w, canvas_h, cx, pB.y, '+');
-		draw_horizontal_between_borders(canvas, canvas_w, canvas_h, cx, pB.x, pB.y,
-						      pB.x >= cx ? +1 : -1);
+		draw_vertical_segment(canvas, canvas_w, canvas_h, cx, cy, pBy);
+		canvas_put_char(canvas, canvas_w, canvas_h, cx, pBy, '+');
+		draw_horizontal_between_borders(canvas, canvas_w, canvas_h, cx, pBx, pBy,
+						pBx >= cx ? +1 : -1);
 		return;
 	}
 
-	draw_vertical_segment(canvas, canvas_w, canvas_h, pA.x, pA.y, pB.y);
-	canvas_put_char(canvas, canvas_w, canvas_h, pA.x, pB.y, '+');
-	draw_horizontal_between_borders(canvas, canvas_w, canvas_h, pA.x, pB.x, pB.y,
-					      pB.x >= pA.x ? +1 : -1);
+	draw_vertical_segment(canvas, canvas_w, canvas_h, pAx, pAy, pBy);
+	canvas_put_char(canvas, canvas_w, canvas_h, pAx, pBy, '+');
+	draw_horizontal_between_borders(canvas, canvas_w, canvas_h, pAx, pBx, pBy,
+					pBx >= pAx ? +1 : -1);
 }
 
 static int
@@ -379,40 +381,34 @@ compute_canvas_size(int *out_w, int *out_h)
 	int i;
 	int max_x = 0;
 	int max_y = 0;
-	int has_content = 0;
 
 	if (out_w == NULL || out_h == NULL)
 		return -1;
 
-	for (i = 0; i < rect_count(); ++i)
+	for (i = 0; i < app_rect_count(); ++i)
 	{
-		Rect *r = rect_get(i);
+		const DiagramRect_t *r = app_rect_get_const(i);
 		if (r == NULL)
 			continue;
-		if (r->x + r->w - 1 > max_x)
-			max_x = r->x + r->w - 1;
-		if (r->y + r->h - 1 > max_y)
-			max_y = r->y + r->h - 1;
-		has_content = 1;
+		if (r->x + r->width - 1 > max_x)
+			max_x = r->x + r->width - 1;
+		if (r->y + r->height - 1 > max_y)
+			max_y = r->y + r->height - 1;
 	}
 
-	for (i = 0; i < conn_count(); ++i)
+	for (i = 0; i < app_conn_count(); ++i)
 	{
-		conn_t *c = conn_get(i);
-		if (c == NULL || !c->has_control)
+		const DiagramConn_t *c = app_conn_get_const(i);
+		if (c == NULL || !c->has_manual_points)
 			continue;
-		if (c->point_control.x > max_x)
-			max_x = c->point_control.x;
-		if (c->point_control.y > max_y)
-			max_y = c->point_control.y;
-		has_content = 1;
-	}
-
-	if (!has_content)
-	{
-		*out_w = 1;
-		*out_h = 1;
-		return 0;
+		if (c->p1x > max_x)
+			max_x = c->p1x;
+		if (c->p1y > max_y)
+			max_y = c->p1y;
+		if (c->p2x > max_x)
+			max_x = c->p2x;
+		if (c->p2y > max_y)
+			max_y = c->p2y;
 	}
 
 	if (max_x >= WORLD_MAX_X)
@@ -422,6 +418,10 @@ compute_canvas_size(int *out_w, int *out_h)
 
 	*out_w = max_x + 1;
 	*out_h = max_y + 1;
+	if (*out_w < 1)
+		*out_w = 1;
+	if (*out_h < 1)
+		*out_h = 1;
 	return 0;
 }
 
@@ -442,27 +442,28 @@ storage_save_text(const char *path)
 	}
 
 	fprintf(fp, "# ascii-diagrams save\n");
-	fprintf(fp, "RECTS %d\n", rect_count());
-	for (i = 0; i < rect_count(); ++i)
+	fprintf(fp, "RECTS %d\n", app_rect_count());
+	for (i = 0; i < app_rect_count(); ++i)
 	{
-		Rect *r = rect_get(i);
+		const DiagramRect_t *r = app_rect_get_const(i);
 		if (r == NULL)
 			continue;
-		fprintf(fp, "RECT id=%d x=%d y=%d w=%d h=%d title=", r->id, r->x, r->y, r->w,
-			r->h);
+		fprintf(fp, "RECT id=%s x=%d y=%d w=%d h=%d title=", r->id, r->x, r->y, r->width,
+			r->height);
 		write_escaped(fp, r->title);
 		fputs("TEXT ", fp);
-		write_escaped(fp, r->text);
+		write_escaped(fp, r->body);
 	}
 
-	fprintf(fp, "CONNS %d\n", conn_count());
-	for (i = 0; i < conn_count(); ++i)
+	fprintf(fp, "CONNS %d\n", app_conn_count());
+	for (i = 0; i < app_conn_count(); ++i)
 	{
-		conn_t *c = conn_get(i);
+		const DiagramConn_t *c = app_conn_get_const(i);
 		if (c == NULL)
 			continue;
-		fprintf(fp, "CONN a=%d b=%d has_control=%d cx=%d cy=%d\n", c->a, c->b,
-			c->has_control, c->point_control.x, c->point_control.y);
+		fprintf(fp, "CONN from=%s to=%s has_manual_points=%d p1x=%d p1y=%d p2x=%d p2y=%d\n",
+			c->from_rect_id, c->to_rect_id, c->has_manual_points,
+			c->p1x, c->p1y, c->p2x, c->p2y);
 	}
 
 	fclose(fp);
@@ -523,10 +524,10 @@ storage_save_world_diagram(const char *path)
 		return -1;
 	memset(canvas, ' ', (size_t)canvas_w * (size_t)canvas_h);
 
-	for (i = 0; i < rect_count(); ++i)
-		render_rect(canvas, canvas_w, canvas_h, rect_get(i));
-	for (i = 0; i < conn_count(); ++i)
-		render_conn(canvas, canvas_w, canvas_h, conn_get(i));
+	for (i = 0; i < app_rect_count(); ++i)
+		render_rect(canvas, canvas_w, canvas_h, app_rect_get(i));
+	for (i = 0; i < app_conn_count(); ++i)
+		render_conn(canvas, canvas_w, canvas_h, app_conn_get_const(i));
 
 	rc = storage_save_visual(path, canvas, canvas_w, canvas_h);
 	free(canvas);
