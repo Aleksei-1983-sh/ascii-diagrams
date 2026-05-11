@@ -508,30 +508,30 @@ storage_save_visual(const char *path, const char *canvas, int canvas_w, int canv
 int
 storage_save_world_diagram(const char *path)
 {
-	char *canvas;
-	int canvas_w;
-	int canvas_h;
-	int i;
-	int rc;
+        char *text;
+        FILE *fp;
+        int status;
 
-	if (path == NULL)
-		return -1;
-	if (compute_canvas_size(&canvas_w, &canvas_h) != 0)
-		return -1;
+        if (path == NULL)
+                return -1;
 
-	canvas = malloc((size_t)canvas_w * (size_t)canvas_h);
-	if (canvas == NULL)
-		return -1;
-	memset(canvas, ' ', (size_t)canvas_w * (size_t)canvas_h);
+        text = NULL;
+        status = diagram_render_ascii(&app_state_get()->diagram, &text);
+        if (status != DIAGRAM_OK)
+                return -1;
 
-	for (i = 0; i < app_rect_count(); ++i)
-		render_rect(canvas, canvas_w, canvas_h, app_rect_get(i));
-	for (i = 0; i < app_conn_count(); ++i)
-		render_conn(canvas, canvas_w, canvas_h, app_conn_get_const(i));
+        fp = fopen(path, "w");
+        if (fp == NULL)
+        {
+                free(text);
+                fprintf(stderr, "Error: cannot open file for write: %s\n", path);
+                return -1;
+        }
 
-	rc = storage_save_visual(path, canvas, canvas_w, canvas_h);
-	free(canvas);
-	return rc;
+        fputs(text, fp);
+        fclose(fp);
+        free(text);
+        return 0;
 }
 
 
