@@ -258,6 +258,7 @@ handle_left_pressed(InputState *s, int mx, int my, int buttons)
 			rect.y = 6 + (app_rect_count() % 6) * 1;
 			rect.width = 14;
 			rect.height = 5;
+			snprintf(rect.title, sizeof(rect.title), "Block %d", app_rect_count() + 1);
 			diagram_add_rect(&app_state_get()->diagram, &rect);
 		} while (0);
 		ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected,
