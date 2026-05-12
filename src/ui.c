@@ -11,607 +11,782 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* VIEWPORT переменные определяются здесь (экспортированы через config.h extern) */
+/* VIEWPORT переменные определяются здесь (экспортированы через config.h extern). */
 int VIEWPORT_VX = 0;
 int VIEWPORT_VY = 0;
 
-static void
-world_to_screen(int wx, int wy, int *sx, int *sy)
+typedef struct
 {
-	if (sx != NULL)
-		*sx = wx - VIEWPORT_VX;
-	if (sy != NULL)
-		*sy = wy - VIEWPORT_VY;
+	int x;
+	int y;
+} UiPoint_t;
+
+typedef struct
+{
+	int left;
+	int right;
+	int top;
+	int bottom;
+} RectBounds_t;
+
+typedef struct
+{
+	int start_x;
+	int start_y;
+	int end_x;
+	int end_y;
+} ConnEndpoints_t;
+
+typedef struct
+{
+	int editing_enabled;
+	int edit_rect_index;
+} UiFrameState_t;
+
+/*
+ Преобразует координаты мирового пространства в экранные с учётом текущего viewport.
+*/
+static UiPoint_t
+world_to_screen(int world_x, int world_y)
+{
+	UiPoint_t screen_point;
+
+	screen_point.x = world_x - VIEWPORT_VX;
+	screen_point.y = world_y - VIEWPORT_VY;
+	return screen_point;
 }
 
-static void
-put_screen_char(int sx, int sy, char ch)
+/*
+ Возвращает 1, если экранная точка попадает в видимую область терминала.
+*/
+static int
+screen_point_is_visible(UiPoint_t screen_point)
 {
-	if (sx < 0 || sx >= COLS)
-		return;
-	if (sy < 0 || sy >= LINES)
-		return;
-	mvaddch(sy, sx, ch);
+	if (screen_point.x < 0 || screen_point.x >= COLS)
+		return 0;
+	if (screen_point.y < 0 || screen_point.y >= LINES)
+		return 0;
+	return 1;
 }
 
+/*
+ Безопасно рисует символ на экране, если точка находится внутри терминала.
+*/
+static void
+put_screen_char(UiPoint_t screen_point, char screen_char)
+{
+	if (!screen_point_is_visible(screen_point))
+		return;
+
+	mvaddch(screen_point.y, screen_point.x, screen_char);
+}
+
+/*
+ Рисует верхние кнопки управления приложением.
+*/
 static void
 draw_button(void)
 {
+	LOG_UI("Drawing top action buttons");
 	mvaddstr(BTN_Y, BTN_X, BTN_TEXT);
 	mvaddstr(BTN_Y, SAVE_BTN_X, SAVE_BTN_TEXT);
 	mvaddstr(BTN_Y, DELETE_BTN_X, DELETE_BTN_TEXT);
 }
 
+/*
+ Рисует прямоугольную рамку с заголовком в экранных координатах.
+*/
 void
-ui_draw_box(int x, int y, int box_w, int box_h, const char *title)
+ui_draw_box(int box_x, int box_y, int box_width, int box_height, const char *title)
 {
-	int i;
-	int j;
+	int border_offset_x;
+	int border_offset_y;
 
-	if (box_w < 2 || box_h < 2)
+	LOG_UI("ui_draw_box x=%d y=%d w=%d h=%d title=%s", box_x, box_y, box_width, box_height,
+	       title != NULL ? title : "(null)");
+	if (box_width < 2 || box_height < 2)
 		return;
 
-	mvaddch(y, x, '+');
-	mvaddch(y, x + box_w - 1, '+');
-	mvaddch(y + box_h - 1, x, '+');
-	mvaddch(y + box_h - 1, x + box_w - 1, '+');
+	mvaddch(box_y, box_x, '+');
+	mvaddch(box_y, box_x + box_width - 1, '+');
+	mvaddch(box_y + box_height - 1, box_x, '+');
+	mvaddch(box_y + box_height - 1, box_x + box_width - 1, '+');
 
-	for (i = 1; i < box_w - 1; ++i)
+	for (border_offset_x = 1; border_offset_x < box_width - 1; ++border_offset_x)
 	{
-		mvaddch(y, x + i, '-');
-		mvaddch(y + box_h - 1, x + i, '-');
+		mvaddch(box_y, box_x + border_offset_x, '-');
+		mvaddch(box_y + box_height - 1, box_x + border_offset_x, '-');
 	}
 
-	for (j = 1; j < box_h - 1; ++j)
+	for (border_offset_y = 1; border_offset_y < box_height - 1; ++border_offset_y)
 	{
-		mvaddch(y + j, x, '|');
-		mvaddch(y + j, x + box_w - 1, '|');
+		mvaddch(box_y + border_offset_y, box_x, '|');
+		mvaddch(box_y + border_offset_y, box_x + box_width - 1, '|');
 	}
 
-	if (title != NULL && title[0] != '\0' && box_w > 4)
-		mvaddnstr(y, x + 2, title, box_w - 4);
+	if (title != NULL && title[0] != '\0' && box_width > 4)
+		mvaddnstr(box_y, box_x + 2, title, box_width - 4);
 }
 
+/*
+ Очищает внутреннюю область прямоугольника перед перерисовкой текста.
+*/
 static void
-fill_rect_interior(const DiagramRect_t *rect, int sx, int sy)
+fill_rect_interior(const DiagramRect_t *rect, UiPoint_t screen_origin)
 {
-	int y;
-	int x;
+	int inner_offset_y;
+	int inner_offset_x;
 
+	if (rect == NULL)
+		return;
 	if (rect->width <= 2 || rect->height <= 2)
 		return;
 
-	for (y = 1; y < rect->height - 1; ++y)
+	for (inner_offset_y = 1; inner_offset_y < rect->height - 1; ++inner_offset_y)
 	{
-		for (x = 1; x < rect->width - 1; ++x)
-			put_screen_char(sx + x, sy + y, ' ');
+		for (inner_offset_x = 1; inner_offset_x < rect->width - 1; ++inner_offset_x)
+		{
+			UiPoint_t cell_point;
+
+			cell_point.x = screen_origin.x + inner_offset_x;
+			cell_point.y = screen_origin.y + inner_offset_y;
+			put_screen_char(cell_point, ' ');
+		}
 	}
 }
 
+/*
+ Рисует один прямоугольник диаграммы вместе с заголовком и телом.
+*/
 static void
 draw_rect(const DiagramRect_t *rect)
 {
-	int sx;
-	int sy;
-	int inner_w;
-	int inner_h;
-	int i;
-	char lines[64][256];
-	int n;
+	UiPoint_t screen_origin;
+	int body_width;
+	int body_height;
+	int border_offset;
+	char wrapped_lines[64][256];
+	int wrapped_line_count;
 
 	if (rect == NULL)
 		return;
 
-	world_to_screen(rect->x, rect->y, &sx, &sy);
-	if (sx + rect->width <= 0 || sy + rect->height <= 0 || sx >= COLS || sy >= LINES)
+	screen_origin = world_to_screen(rect->x, rect->y);
+	if (screen_origin.x + rect->width <= 0 || screen_origin.y + rect->height <= 0 ||
+	    screen_origin.x >= COLS || screen_origin.y >= LINES)
 		return;
 
-	fill_rect_interior(rect, sx, sy);
+	LOG_UI("Drawing rect id=%s world=(%d,%d) size=%dx%d screen=(%d,%d)", rect->id, rect->x,
+	       rect->y, rect->width, rect->height, screen_origin.x, screen_origin.y);
 
-	put_screen_char(sx, sy, '*');
-	put_screen_char(sx + rect->width - 1, sy, '*');
-	put_screen_char(sx, sy + rect->height - 1, '*');
-	put_screen_char(sx + rect->width - 1, sy + rect->height - 1, '*');
-	for (i = 1; i < rect->width - 1; ++i)
+	fill_rect_interior(rect, screen_origin);
+
+	put_screen_char(screen_origin, '*');
+	put_screen_char((UiPoint_t){screen_origin.x + rect->width - 1, screen_origin.y}, '*');
+	put_screen_char((UiPoint_t){screen_origin.x, screen_origin.y + rect->height - 1}, '*');
+	put_screen_char((UiPoint_t){screen_origin.x + rect->width - 1,
+				    screen_origin.y + rect->height - 1},
+			'*');
+	for (border_offset = 1; border_offset < rect->width - 1; ++border_offset)
 	{
-		put_screen_char(sx + i, sy, '-');
-		put_screen_char(sx + i, sy + rect->height - 1, '-');
+		put_screen_char((UiPoint_t){screen_origin.x + border_offset, screen_origin.y}, '-');
+		put_screen_char((UiPoint_t){screen_origin.x + border_offset,
+					    screen_origin.y + rect->height - 1},
+				'-');
 	}
-	for (i = 1; i < rect->height - 1; ++i)
+	for (border_offset = 1; border_offset < rect->height - 1; ++border_offset)
 	{
-		put_screen_char(sx, sy + i, '|');
-		put_screen_char(sx + rect->width - 1, sy + i, '|');
+		put_screen_char((UiPoint_t){screen_origin.x, screen_origin.y + border_offset}, '|');
+		put_screen_char((UiPoint_t){screen_origin.x + rect->width - 1,
+					    screen_origin.y + border_offset},
+				'|');
 	}
 
-	if (rect->title[0] != '\0' && sy >= 0 && sy < LINES)
+	if (rect->title[0] != '\0' && screen_origin.y >= 0 && screen_origin.y < LINES)
 	{
-		int len = (int)strlen(rect->title);
+		int title_length;
 		int title_x;
+		const char *title_start;
 
-		if (len > rect->width - 2)
-			len = rect->width - 2;
-		title_x = sx + (rect->width - len) / 2;
-		if (title_x <= sx)
-			title_x = sx + 1;
+		title_length = (int)strlen(rect->title);
+		if (title_length > rect->width - 2)
+			title_length = rect->width - 2;
+		title_x = screen_origin.x + (rect->width - title_length) / 2;
+		if (title_x <= screen_origin.x)
+			title_x = screen_origin.x + 1;
 		if (title_x < COLS)
-			mvaddnstr(sy, title_x < 0 ? 0 : title_x,
-				  rect->title + (title_x < 0 ? -title_x : 0), len);
+		{
+			title_start = rect->title + (title_x < 0 ? -title_x : 0);
+			mvaddnstr(screen_origin.y, title_x < 0 ? 0 : title_x, title_start,
+				  title_length);
+		}
 	}
 
-	inner_w = rect->width - 2;
-	inner_h = rect->height - 2;
-	if (inner_w <= 0 || inner_h <= 0)
+	body_width = rect->width - 2;
+	body_height = rect->height - 2;
+	if (body_width <= 0 || body_height <= 0)
 		return;
 
-	n = app_wrap_text(rect->body, inner_w, lines, inner_h);
-	for (i = 0; i < inner_h; ++i)
+	wrapped_line_count = app_wrap_text(rect->body, body_width, wrapped_lines, body_height);
+	for (border_offset = 0; border_offset < body_height; ++border_offset)
 	{
-		int yy = sy + 1 + i;
-		int len;
-		int pad;
-		int tx;
+		int screen_y;
+		int text_length;
+		int left_padding;
+		int text_x;
 
-		if (yy < 0 || yy >= LINES)
+		screen_y = screen_origin.y + 1 + border_offset;
+		if (screen_y < 0 || screen_y >= LINES)
 			continue;
-		len = i < n ? (int)strlen(lines[i]) : 0;
-		if (len > inner_w)
-			len = inner_w;
-		pad = (inner_w - len) / 2;
-		if (pad < 0)
-			pad = 0;
-		tx = sx + 1 + pad;
-		if (len > 0 && tx < COLS)
-			mvaddnstr(yy, tx < 0 ? 0 : tx, lines[i] + (tx < 0 ? -tx : 0), len);
+
+		text_length = border_offset < wrapped_line_count ?
+				      (int)strlen(wrapped_lines[border_offset]) :
+				      0;
+		if (text_length > body_width)
+			text_length = body_width;
+
+		/* Центрируем строку внутри внутренней области прямоугольника. */
+		left_padding = (body_width - text_length) / 2;
+		if (left_padding < 0)
+			left_padding = 0;
+		text_x = screen_origin.x + 1 + left_padding;
+		if (text_length > 0 && text_x < COLS)
+			mvaddnstr(screen_y, text_x < 0 ? 0 : text_x,
+				  wrapped_lines[border_offset] + (text_x < 0 ? -text_x : 0),
+				  text_length);
 	}
 }
 
-static int
-rects_overlap(const DiagramRect_t *a, const DiagramRect_t *b)
+/*
+ Вычисляет границы прямоугольника в мировых координатах.
+*/
+static RectBounds_t
+get_rect_bounds(const DiagramRect_t *rect)
 {
-	int a_right;
-	int a_bottom;
-	int b_right;
-	int b_bottom;
+	RectBounds_t bounds;
 
-	if (a == NULL || b == NULL)
+	bounds.left = rect->x;
+	bounds.right = rect->x + rect->width - 1;
+	bounds.top = rect->y;
+	bounds.bottom = rect->y + rect->height - 1;
+	return bounds;
+}
+
+/*
+ Возвращает 1, если два прямоугольника диаграммы пересекаются.
+*/
+static int
+rects_overlap(const DiagramRect_t *first_rect, const DiagramRect_t *second_rect)
+{
+	RectBounds_t first_bounds;
+	RectBounds_t second_bounds;
+
+	if (first_rect == NULL || second_rect == NULL)
 		return 0;
 
-	a_right = a->x + a->width - 1;
-	a_bottom = a->y + a->height - 1;
-	b_right = b->x + b->width - 1;
-	b_bottom = b->y + b->height - 1;
+	first_bounds = get_rect_bounds(first_rect);
+	second_bounds = get_rect_bounds(second_rect);
 
-	if (a_right < b->x || b_right < a->x)
+	if (first_bounds.right < second_bounds.left || second_bounds.right < first_bounds.left)
 		return 0;
-	if (a_bottom < b->y || b_bottom < a->y)
+	if (first_bounds.bottom < second_bounds.top || second_bounds.bottom < first_bounds.top)
 		return 0;
 	return 1;
 }
 
+/*
+ Рисует точку поворота соединения в мировых координатах.
+*/
 static void
-draw_turn_world(int wx, int wy)
+draw_turn_world(int world_x, int world_y)
 {
-	int sx;
-	int sy;
-
-	world_to_screen(wx, wy, &sx, &sy);
-	put_screen_char(sx, sy, '+');
+	put_screen_char(world_to_screen(world_x, world_y), '+');
 }
 
+/*
+ Рисует горизонтальный сегмент со стрелкой на конце.
+*/
 static void
-draw_straight_horizontal_world(int wx_left_border, int wx_right_border, int wy, int direction)
+draw_straight_horizontal_world(int left_border_x, int right_border_x, int world_y, int direction)
 {
-	int left;
-	int right;
-	int start;
-	int end;
-	int wx;
-	int arrow_wx;
-	int sx;
-	int sy;
+	int normalized_left;
+	int normalized_right;
+	int segment_start_x;
+	int segment_end_x;
+	int world_x;
+	int arrow_world_x;
 
-	left = wx_left_border < wx_right_border ? wx_left_border : wx_right_border;
-	right = wx_left_border < wx_right_border ? wx_right_border : wx_left_border;
-	start = left + 1;
-	end = right - 1;
-	if (start > end)
+	normalized_left = left_border_x < right_border_x ? left_border_x : right_border_x;
+	normalized_right = left_border_x < right_border_x ? right_border_x : left_border_x;
+	segment_start_x = normalized_left + 1;
+	segment_end_x = normalized_right - 1;
+	if (segment_start_x > segment_end_x)
 		return;
 
-	for (wx = start; wx <= end; ++wx)
-	{
-		world_to_screen(wx, wy, &sx, &sy);
-		put_screen_char(sx, sy, '-');
-	}
+	for (world_x = segment_start_x; world_x <= segment_end_x; ++world_x)
+		put_screen_char(world_to_screen(world_x, world_y), '-');
 
-	arrow_wx = direction >= 0 ? right - 1 : left + 1;
-	if (arrow_wx < start)
-		arrow_wx = start;
-	if (arrow_wx > end)
-		arrow_wx = end;
-	world_to_screen(arrow_wx, wy, &sx, &sy);
-	put_screen_char(sx, sy, direction >= 0 ? '>' : '<');
+	arrow_world_x = direction >= 0 ? normalized_right - 1 : normalized_left + 1;
+	if (arrow_world_x < segment_start_x)
+		arrow_world_x = segment_start_x;
+	if (arrow_world_x > segment_end_x)
+		arrow_world_x = segment_end_x;
+	put_screen_char(world_to_screen(arrow_world_x, world_y), direction >= 0 ? '>' : '<');
 }
 
+/*
+ Рисует вертикальный сегмент со стрелкой на конце.
+*/
 static void
-draw_straight_vertical_world(int wx, int wy_top_border, int wy_bottom_border, int direction)
+draw_straight_vertical_world(int world_x, int top_border_y, int bottom_border_y, int direction)
 {
-	int top;
-	int bottom;
-	int start;
-	int end;
-	int wy;
-	int arrow_wy;
-	int sx;
-	int sy;
+	int normalized_top;
+	int normalized_bottom;
+	int segment_start_y;
+	int segment_end_y;
+	int world_y;
+	int arrow_world_y;
 
-	top = wy_top_border < wy_bottom_border ? wy_top_border : wy_bottom_border;
-	bottom = wy_top_border < wy_bottom_border ? wy_bottom_border : wy_top_border;
-	start = top + 1;
-	end = bottom - 1;
-	if (start > end)
+	normalized_top = top_border_y < bottom_border_y ? top_border_y : bottom_border_y;
+	normalized_bottom = top_border_y < bottom_border_y ? bottom_border_y : top_border_y;
+	segment_start_y = normalized_top + 1;
+	segment_end_y = normalized_bottom - 1;
+	if (segment_start_y > segment_end_y)
 		return;
 
-	for (wy = start; wy <= end; ++wy)
-	{
-		world_to_screen(wx, wy, &sx, &sy);
-		put_screen_char(sx, sy, '|');
-	}
+	for (world_y = segment_start_y; world_y <= segment_end_y; ++world_y)
+		put_screen_char(world_to_screen(world_x, world_y), '|');
 
-	arrow_wy = direction >= 0 ? bottom - 1 : top + 1;
-	if (arrow_wy < start)
-		arrow_wy = start;
-	if (arrow_wy > end)
-		arrow_wy = end;
-	world_to_screen(wx, arrow_wy, &sx, &sy);
-	put_screen_char(sx, sy, direction >= 0 ? 'v' : '^');
+	arrow_world_y = direction >= 0 ? normalized_bottom - 1 : normalized_top + 1;
+	if (arrow_world_y < segment_start_y)
+		arrow_world_y = segment_start_y;
+	if (arrow_world_y > segment_end_y)
+		arrow_world_y = segment_end_y;
+	put_screen_char(world_to_screen(world_x, arrow_world_y), direction >= 0 ? 'v' : '^');
 }
 
+/*
+ Рисует вертикальный сегмент без наконечника стрелки.
+ skip_first/skip_last позволяют не затирать углы при составных соединениях.
+*/
 static void
-draw_vertical_segment_world(int wx, int wy0, int wy1, int skip_first, int skip_last)
+draw_vertical_segment_world(int world_x, int start_y, int end_y, int skip_first, int skip_last)
 {
-	int step;
-	int wy;
-	int end;
+	int step_y;
+	int current_y;
+	int terminal_y;
 
-	if (wy0 == wy1)
+	if (start_y == end_y)
 		return;
 
-	step = wy1 > wy0 ? 1 : -1;
-	wy = wy0 + (skip_first ? step : 0);
-	end = wy1 - (skip_last ? step : 0);
-	if ((step > 0 && wy > end) || (step < 0 && wy < end))
+	step_y = end_y > start_y ? 1 : -1;
+	current_y = start_y + (skip_first ? step_y : 0);
+	terminal_y = end_y - (skip_last ? step_y : 0);
+	if ((step_y > 0 && current_y > terminal_y) || (step_y < 0 && current_y < terminal_y))
 		return;
 
 	for (;;)
 	{
-		int sx;
-		int sy;
-
-		world_to_screen(wx, wy, &sx, &sy);
-		put_screen_char(sx, sy, '|');
-		if (wy == end)
+		put_screen_char(world_to_screen(world_x, current_y), '|');
+		if (current_y == terminal_y)
 			break;
-		wy += step;
+		current_y += step_y;
 	}
 }
 
+/*
+ Рисует горизонтальный сегмент без наконечника стрелки.
+ skip_first/skip_last позволяют не затирать углы при составных соединениях.
+*/
 static void
-draw_horizontal_segment_world(int wx0, int wx1, int wy, int skip_first, int skip_last)
+draw_horizontal_segment_world(int start_x, int end_x, int world_y, int skip_first, int skip_last)
 {
-	int step;
-	int wx;
-	int end;
+	int step_x;
+	int current_x;
+	int terminal_x;
 
-	if (wx0 == wx1)
+	if (start_x == end_x)
 		return;
 
-	step = wx1 > wx0 ? 1 : -1;
-	wx = wx0 + (skip_first ? step : 0);
-	end = wx1 - (skip_last ? step : 0);
-	if ((step > 0 && wx > end) || (step < 0 && wx < end))
+	step_x = end_x > start_x ? 1 : -1;
+	current_x = start_x + (skip_first ? step_x : 0);
+	terminal_x = end_x - (skip_last ? step_x : 0);
+	if ((step_x > 0 && current_x > terminal_x) || (step_x < 0 && current_x < terminal_x))
 		return;
 
 	for (;;)
 	{
-		int sx;
-		int sy;
-
-		world_to_screen(wx, wy, &sx, &sy);
-		put_screen_char(sx, sy, '-');
-		if (wx == end)
+		put_screen_char(world_to_screen(current_x, world_y), '-');
+		if (current_x == terminal_x)
 			break;
-		wx += step;
+		current_x += step_x;
 	}
 }
 
+/*
+ Рисует Г-образное ортогональное соединение между двумя точками.
+*/
 static void
-draw_orthogonal_L_from_points(int ax, int ay, int corner_x, int corner_y, int bx, int by,
-			      int final_is_horizontal)
+draw_orthogonal_L_from_points(int start_x, int start_y, int corner_x, int corner_y, int end_x,
+			      int end_y, int final_segment_is_horizontal)
 {
-	if (ax == corner_x)
-		draw_vertical_segment_world(ax, ay, corner_y, 0, 1);
+	if (start_x == corner_x)
+		draw_vertical_segment_world(start_x, start_y, corner_y, 0, 1);
 	else
-		draw_horizontal_segment_world(ax, corner_x, ay, 0, 1);
+		draw_horizontal_segment_world(start_x, corner_x, start_y, 0, 1);
 
 	draw_turn_world(corner_x, corner_y);
 
-	if (final_is_horizontal)
+	if (final_segment_is_horizontal)
 	{
-		if (bx > corner_x)
-			draw_straight_horizontal_world(corner_x, bx, corner_y, +1);
-		else if (bx < corner_x)
-			draw_straight_horizontal_world(bx, corner_x, corner_y, -1);
-	}
-	else
+		if (end_x > corner_x)
+			draw_straight_horizontal_world(corner_x, end_x, corner_y, +1);
+		else if (end_x < corner_x)
+			draw_straight_horizontal_world(end_x, corner_x, corner_y, -1);
+	} else
 	{
-		if (by > corner_y)
-			draw_straight_vertical_world(corner_x, corner_y, by, +1);
-		else if (by < corner_y)
-			draw_straight_vertical_world(corner_x, by, corner_y, -1);
+		if (end_y > corner_y)
+			draw_straight_vertical_world(corner_x, corner_y, end_y, +1);
+		else if (end_y < corner_y)
+			draw_straight_vertical_world(corner_x, end_y, corner_y, -1);
 	}
 }
 
+/*
+ Выбирает, должен ли последний сегмент автоматически построенного соединения
+ быть горизонтальным или вертикальным.
+*/
 static int
-choose_final_horizontal(const DiagramRect_t *rb, int cx, int cy, int bx, int by)
+choose_final_horizontal(const DiagramRect_t *target_rect, int corner_x, int corner_y, int end_x,
+			int end_y)
 {
-	if (rb != NULL)
+	if (target_rect != NULL)
 	{
-		if (bx == rb->x || bx == rb->x + rb->width - 1)
+		if (end_x == target_rect->x || end_x == target_rect->x + target_rect->width - 1)
 			return 1;
-		if (by == rb->y || by == rb->y + rb->height - 1)
+		if (end_y == target_rect->y || end_y == target_rect->y + target_rect->height - 1)
 			return 0;
 	}
-	return abs(bx - cx) >= abs(by - cy) ? 1 : 0;
+	return abs(end_x - corner_x) >= abs(end_y - corner_y) ? 1 : 0;
 }
 
+/*
+ Рисует соединение по пользовательским контрольным точкам.
+*/
 static void
-draw_conn_manual(const DiagramConn_t *conn, int ax, int ay, int bx, int by)
+draw_conn_manual(const DiagramConn_t *conn, const ConnEndpoints_t *endpoints)
 {
-	int prev_x;
-	int prev_y;
-	int curr_x;
-	int curr_y;
+	int previous_x;
+	int previous_y;
+	int current_x;
+	int current_y;
 
-	prev_x = ax;
-	prev_y = ay;
-	curr_x = conn->p1x;
-	curr_y = conn->p1y;
-	if (prev_x != curr_x)
-		draw_horizontal_segment_world(prev_x, curr_x, prev_y, 0, 0);
-	draw_turn_world(curr_x, prev_y);
-	if (prev_y != curr_y)
-		draw_vertical_segment_world(curr_x, prev_y, curr_y, 0, 0);
-	draw_turn_world(curr_x, curr_y);
-	prev_x = curr_x;
-	prev_y = curr_y;
+	LOG_UI("Drawing manual connection id=%s", conn->id);
+
+	previous_x = endpoints->start_x;
+	previous_y = endpoints->start_y;
+	current_x = conn->p1x;
+	current_y = conn->p1y;
+	if (previous_x != current_x)
+		draw_horizontal_segment_world(previous_x, current_x, previous_y, 0, 0);
+	draw_turn_world(current_x, previous_y);
+	if (previous_y != current_y)
+		draw_vertical_segment_world(current_x, previous_y, current_y, 0, 0);
+	draw_turn_world(current_x, current_y);
+	previous_x = current_x;
+	previous_y = current_y;
 
 	if (conn->p2x != conn->p1x || conn->p2y != conn->p1y)
 	{
-		curr_x = conn->p2x;
-		curr_y = conn->p2y;
-		if (prev_x != curr_x)
-			draw_horizontal_segment_world(prev_x, curr_x, prev_y, 0, 0);
-		draw_turn_world(curr_x, prev_y);
-		if (prev_y != curr_y)
-			draw_vertical_segment_world(curr_x, prev_y, curr_y, 0, 0);
-		draw_turn_world(curr_x, curr_y);
-		prev_x = curr_x;
-		prev_y = curr_y;
+		current_x = conn->p2x;
+		current_y = conn->p2y;
+		if (previous_x != current_x)
+			draw_horizontal_segment_world(previous_x, current_x, previous_y, 0, 0);
+		draw_turn_world(current_x, previous_y);
+		if (previous_y != current_y)
+			draw_vertical_segment_world(current_x, previous_y, current_y, 0, 0);
+		draw_turn_world(current_x, current_y);
+		previous_x = current_x;
+		previous_y = current_y;
 	}
 
-	if (prev_y != by)
-		draw_vertical_segment_world(prev_x, prev_y, by, 0, 0);
-	draw_turn_world(prev_x, by);
-	if (prev_x != bx)
-		draw_horizontal_segment_world(prev_x, bx, by, 0, 1);
-	if (prev_x < bx)
-		draw_straight_horizontal_world(prev_x, bx, by, +1);
-	else if (prev_x > bx)
-		draw_straight_horizontal_world(bx, prev_x, by, -1);
-	else if (prev_y < by)
-		draw_straight_vertical_world(prev_x, prev_y, by, +1);
-	else if (prev_y > by)
-		draw_straight_vertical_world(prev_x, by, prev_y, -1);
+	if (previous_y != endpoints->end_y)
+		draw_vertical_segment_world(previous_x, previous_y, endpoints->end_y, 0, 0);
+	draw_turn_world(previous_x, endpoints->end_y);
+	if (previous_x != endpoints->end_x)
+		draw_horizontal_segment_world(previous_x, endpoints->end_x, endpoints->end_y, 0, 1);
+	if (previous_x < endpoints->end_x)
+		draw_straight_horizontal_world(previous_x, endpoints->end_x, endpoints->end_y, +1);
+	else if (previous_x > endpoints->end_x)
+		draw_straight_horizontal_world(endpoints->end_x, previous_x, endpoints->end_y, -1);
+	else if (previous_y < endpoints->end_y)
+		draw_straight_vertical_world(previous_x, previous_y, endpoints->end_y, +1);
+	else if (previous_y > endpoints->end_y)
+		draw_straight_vertical_world(previous_x, endpoints->end_y, previous_y, -1);
 }
 
+/*
+ Рисует автоматически вычисляемое ортогональное соединение между двумя блоками.
+*/
 static void
-draw_conn_auto(const DiagramRect_t *ra, const DiagramRect_t *rb, int ax, int ay, int bx, int by)
+draw_conn_auto(const DiagramRect_t *source_rect, const DiagramRect_t *target_rect,
+	       const ConnEndpoints_t *endpoints)
 {
-	int final_is_horizontal;
+	int final_segment_is_horizontal;
 
-	if (rects_overlap(ra, rb))
+	LOG_UI("Drawing auto connection from=%s to=%s", source_rect->id, target_rect->id);
+
+	if (rects_overlap(source_rect, target_rect))
 		return;
 
-	if (ra->x + ra->width - 1 < rb->x)
+	if (source_rect->x + source_rect->width - 1 < target_rect->x)
 	{
-		int a_top;
-		int a_bottom;
-		int b_top;
-		int b_bottom;
-		int inter_top;
-		int inter_bottom;
-		int wy;
-		int a_border_x;
-		int b_border_x;
+		int source_inner_top;
+		int source_inner_bottom;
+		int target_inner_top;
+		int target_inner_bottom;
+		int overlap_top;
+		int overlap_bottom;
+		int shared_center_y;
+		int source_border_x;
+		int target_border_x;
 
-		a_top = ra->y + 1;
-		a_bottom = ra->y + ra->height - 2;
-		b_top = rb->y + 1;
-		b_bottom = rb->y + rb->height - 2;
-		inter_top = a_top > b_top ? a_top : b_top;
-		inter_bottom = a_bottom < b_bottom ? a_bottom : b_bottom;
-		if (inter_top <= inter_bottom)
+		source_inner_top = source_rect->y + 1;
+		source_inner_bottom = source_rect->y + source_rect->height - 2;
+		target_inner_top = target_rect->y + 1;
+		target_inner_bottom = target_rect->y + target_rect->height - 2;
+		overlap_top = source_inner_top > target_inner_top ? source_inner_top : target_inner_top;
+		overlap_bottom = source_inner_bottom < target_inner_bottom ?
+					 source_inner_bottom :
+					 target_inner_bottom;
+		if (overlap_top <= overlap_bottom)
 		{
-			wy = (inter_top + inter_bottom) / 2;
-			a_border_x = ra->x + ra->width - 1;
-			b_border_x = rb->x;
-			if (a_border_x + 1 <= b_border_x - 1)
+			shared_center_y = (overlap_top + overlap_bottom) / 2;
+			source_border_x = source_rect->x + source_rect->width - 1;
+			target_border_x = target_rect->x;
+			if (source_border_x + 1 <= target_border_x - 1)
 			{
-				draw_straight_horizontal_world(a_border_x, b_border_x, wy, +1);
+				draw_straight_horizontal_world(source_border_x, target_border_x,
+							       shared_center_y, +1);
 				return;
 			}
 		}
 	}
 
-	if (rb->x + rb->width - 1 < ra->x)
+	if (target_rect->x + target_rect->width - 1 < source_rect->x)
 	{
-		int a_top;
-		int a_bottom;
-		int b_top;
-		int b_bottom;
-		int inter_top;
-		int inter_bottom;
-		int wy;
-		int a_border_x;
-		int b_border_x;
+		int source_inner_top;
+		int source_inner_bottom;
+		int target_inner_top;
+		int target_inner_bottom;
+		int overlap_top;
+		int overlap_bottom;
+		int shared_center_y;
+		int source_border_x;
+		int target_border_x;
 
-		a_top = ra->y + 1;
-		a_bottom = ra->y + ra->height - 2;
-		b_top = rb->y + 1;
-		b_bottom = rb->y + rb->height - 2;
-		inter_top = a_top > b_top ? a_top : b_top;
-		inter_bottom = a_bottom < b_bottom ? a_bottom : b_bottom;
-		if (inter_top <= inter_bottom)
+		source_inner_top = source_rect->y + 1;
+		source_inner_bottom = source_rect->y + source_rect->height - 2;
+		target_inner_top = target_rect->y + 1;
+		target_inner_bottom = target_rect->y + target_rect->height - 2;
+		overlap_top = source_inner_top > target_inner_top ? source_inner_top : target_inner_top;
+		overlap_bottom = source_inner_bottom < target_inner_bottom ?
+					 source_inner_bottom :
+					 target_inner_bottom;
+		if (overlap_top <= overlap_bottom)
 		{
-			wy = (inter_top + inter_bottom) / 2;
-			a_border_x = ra->x;
-			b_border_x = rb->x + rb->width - 1;
-			if (b_border_x + 1 <= a_border_x - 1)
+			shared_center_y = (overlap_top + overlap_bottom) / 2;
+			source_border_x = source_rect->x;
+			target_border_x = target_rect->x + target_rect->width - 1;
+			if (target_border_x + 1 <= source_border_x - 1)
 			{
-				draw_straight_horizontal_world(b_border_x, a_border_x, wy, -1);
+				draw_straight_horizontal_world(target_border_x, source_border_x,
+							       shared_center_y, -1);
 				return;
 			}
 		}
 	}
 
-	if (ra->y + ra->height - 1 < rb->y)
+	if (source_rect->y + source_rect->height - 1 < target_rect->y)
 	{
-		int a_left;
-		int a_right;
-		int b_left;
-		int b_right;
-		int inter_left;
-		int inter_right;
-		int wx;
-		int a_border_y;
-		int b_border_y;
+		int source_inner_left;
+		int source_inner_right;
+		int target_inner_left;
+		int target_inner_right;
+		int overlap_left;
+		int overlap_right;
+		int shared_center_x;
+		int source_border_y;
+		int target_border_y;
 
-		a_left = ra->x + 1;
-		a_right = ra->x + ra->width - 2;
-		b_left = rb->x + 1;
-		b_right = rb->x + rb->width - 2;
-		inter_left = a_left > b_left ? a_left : b_left;
-		inter_right = a_right < b_right ? a_right : b_right;
-		if (inter_left <= inter_right)
+		source_inner_left = source_rect->x + 1;
+		source_inner_right = source_rect->x + source_rect->width - 2;
+		target_inner_left = target_rect->x + 1;
+		target_inner_right = target_rect->x + target_rect->width - 2;
+		overlap_left = source_inner_left > target_inner_left ?
+				       source_inner_left :
+				       target_inner_left;
+		overlap_right = source_inner_right < target_inner_right ?
+					source_inner_right :
+					target_inner_right;
+		if (overlap_left <= overlap_right)
 		{
-			wx = (inter_left + inter_right) / 2;
-			a_border_y = ra->y + ra->height - 1;
-			b_border_y = rb->y;
-			if (a_border_y + 1 <= b_border_y - 1)
+			shared_center_x = (overlap_left + overlap_right) / 2;
+			source_border_y = source_rect->y + source_rect->height - 1;
+			target_border_y = target_rect->y;
+			if (source_border_y + 1 <= target_border_y - 1)
 			{
-				draw_straight_vertical_world(wx, a_border_y, b_border_y, +1);
+				draw_straight_vertical_world(shared_center_x, source_border_y,
+							     target_border_y, +1);
 				return;
 			}
 		}
 	}
 
-	if (rb->y + rb->height - 1 < ra->y)
+	if (target_rect->y + target_rect->height - 1 < source_rect->y)
 	{
-		int a_left;
-		int a_right;
-		int b_left;
-		int b_right;
-		int inter_left;
-		int inter_right;
-		int wx;
-		int a_border_y;
-		int b_border_y;
+		int source_inner_left;
+		int source_inner_right;
+		int target_inner_left;
+		int target_inner_right;
+		int overlap_left;
+		int overlap_right;
+		int shared_center_x;
+		int source_border_y;
+		int target_border_y;
 
-		a_left = ra->x + 1;
-		a_right = ra->x + ra->width - 2;
-		b_left = rb->x + 1;
-		b_right = rb->x + rb->width - 2;
-		inter_left = a_left > b_left ? a_left : b_left;
-		inter_right = a_right < b_right ? a_right : b_right;
-		if (inter_left <= inter_right)
+		source_inner_left = source_rect->x + 1;
+		source_inner_right = source_rect->x + source_rect->width - 2;
+		target_inner_left = target_rect->x + 1;
+		target_inner_right = target_rect->x + target_rect->width - 2;
+		overlap_left = source_inner_left > target_inner_left ?
+				       source_inner_left :
+				       target_inner_left;
+		overlap_right = source_inner_right < target_inner_right ?
+					source_inner_right :
+					target_inner_right;
+		if (overlap_left <= overlap_right)
 		{
-			wx = (inter_left + inter_right) / 2;
-			a_border_y = ra->y;
-			b_border_y = rb->y + rb->height - 1;
-			if (b_border_y + 1 <= a_border_y - 1)
+			shared_center_x = (overlap_left + overlap_right) / 2;
+			source_border_y = source_rect->y;
+			target_border_y = target_rect->y + target_rect->height - 1;
+			if (target_border_y + 1 <= source_border_y - 1)
 			{
-				draw_straight_vertical_world(wx, b_border_y, a_border_y, -1);
+				draw_straight_vertical_world(shared_center_x, target_border_y,
+							     source_border_y, -1);
 				return;
 			}
 		}
 	}
 
-	final_is_horizontal = choose_final_horizontal(rb, ax, ay, bx, by);
-	if (final_is_horizontal)
-		draw_orthogonal_L_from_points(ax, ay, ax, by, bx, by, 1);
+	final_segment_is_horizontal = choose_final_horizontal(target_rect, endpoints->start_x,
+							      endpoints->start_y,
+							      endpoints->end_x,
+							      endpoints->end_y);
+	if (final_segment_is_horizontal)
+		draw_orthogonal_L_from_points(endpoints->start_x, endpoints->start_y,
+					      endpoints->start_x, endpoints->end_y,
+					      endpoints->end_x, endpoints->end_y, 1);
 	else
-		draw_orthogonal_L_from_points(ax, ay, bx, ay, bx, by, 0);
+		draw_orthogonal_L_from_points(endpoints->start_x, endpoints->start_y,
+					      endpoints->end_x, endpoints->start_y,
+					      endpoints->end_x, endpoints->end_y, 0);
 }
 
+/*
+ Собирает точки привязки соединения на границах исходного и целевого блоков.
+*/
+static int
+build_conn_endpoints(const DiagramRect_t *source_rect, const DiagramRect_t *target_rect,
+		     ConnEndpoints_t *endpoints)
+{
+	if (source_rect == NULL || target_rect == NULL || endpoints == NULL)
+		return -1;
+
+	app_rect_get_border_point(source_rect, target_rect->x + target_rect->width / 2,
+				  target_rect->y + target_rect->height / 2,
+				  &endpoints->start_x, &endpoints->start_y);
+	app_rect_get_border_point(target_rect, source_rect->x + source_rect->width / 2,
+				  source_rect->y + source_rect->height / 2,
+				  &endpoints->end_x, &endpoints->end_y);
+	return 0;
+}
+
+/*
+ Рисует одно соединение диаграммы.
+*/
 static void
 draw_conn(const DiagramConn_t *conn)
 {
-	int ia;
-	int ib;
-	const DiagramRect_t *ra;
-	const DiagramRect_t *rb;
-	int ax;
-	int ay;
-	int bx;
-	int by;
+	int source_rect_index;
+	int target_rect_index;
+	const DiagramRect_t *source_rect;
+	const DiagramRect_t *target_rect;
+	ConnEndpoints_t endpoints;
 
 	if (conn == NULL)
 		return;
 
-	ia = app_find_rect_index_by_id(conn->from_rect_id);
-	ib = app_find_rect_index_by_id(conn->to_rect_id);
-	if (ia < 0 || ib < 0)
-		return;
-
-	ra = app_rect_get_const(ia);
-	rb = app_rect_get_const(ib);
-	if (ra == NULL || rb == NULL)
-		return;
-
-	app_rect_get_border_point(ra, rb->x + rb->width / 2, rb->y + rb->height / 2, &ax, &ay);
-	app_rect_get_border_point(rb, ra->x + ra->width / 2, ra->y + ra->height / 2, &bx, &by);
-
-	if (conn->has_manual_points)
+	source_rect_index = app_find_rect_index_by_id(conn->from_rect_id);
+	target_rect_index = app_find_rect_index_by_id(conn->to_rect_id);
+	if (source_rect_index < 0 || target_rect_index < 0)
 	{
-		draw_conn_manual(conn, ax, ay, bx, by);
+		LOG_UI("Skipping connection id=%s: endpoint rect not found", conn->id);
 		return;
 	}
 
-	draw_conn_auto(ra, rb, ax, ay, bx, by);
+	source_rect = app_rect_get_const(source_rect_index);
+	target_rect = app_rect_get_const(target_rect_index);
+	if (source_rect == NULL || target_rect == NULL)
+	{
+		LOG_UI("Skipping connection id=%s: null rect pointer", conn->id);
+		return;
+	}
+	if (build_conn_endpoints(source_rect, target_rect, &endpoints) != 0)
+		return;
+
+	if (conn->has_manual_points)
+	{
+		draw_conn_manual(conn, &endpoints);
+		return;
+	}
+
+	draw_conn_auto(source_rect, target_rect, &endpoints);
 }
 
+/*
+ Перерисовывает весь кадр интерфейса: кнопки, соединения, блоки, панель и статусную строку.
+*/
 void
 ui_draw_all(int editing, int edit_idx, int conn_move_active, int conn_selected, int last_mouse_x,
 	    int last_mouse_y)
 {
-	int i;
-	int term_h;
+	UiFrameState_t frame_state;
+	int index;
+	int terminal_height;
 
 	(void)conn_move_active;
 	(void)conn_selected;
 	(void)last_mouse_x;
 	(void)last_mouse_y;
 
+	frame_state.editing_enabled = editing;
+	frame_state.edit_rect_index = edit_idx;
+
+	LOG_UI("ui_draw_all editing=%d edit_idx=%d rects=%d conns=%d viewport=(%d,%d)",
+	       frame_state.editing_enabled, frame_state.edit_rect_index, app_rect_count(),
+	       app_conn_count(), VIEWPORT_VX, VIEWPORT_VY);
+
 	erase();
-	getmaxyx(stdscr, term_h, i);
+	getmaxyx(stdscr, terminal_height, index);
 	draw_button();
-	for (i = 0; i < app_conn_count(); ++i)
-		draw_conn(app_conn_get_const(i));
-	for (i = 0; i < app_rect_count(); ++i)
-		draw_rect(app_rect_get_const(i));
-	if (editing && edit_idx >= 0)
-		panel_draw(app_rect_get_const(edit_idx));
-	mvprintw(term_h - 1, 2, "Rects: %d  Conns: %d  Viewport: vx=%d vy=%d  Esc=exit",
+	for (index = 0; index < app_conn_count(); ++index)
+		draw_conn(app_conn_get_const(index));
+	for (index = 0; index < app_rect_count(); ++index)
+		draw_rect(app_rect_get_const(index));
+	if (frame_state.editing_enabled && frame_state.edit_rect_index >= 0)
+		panel_draw(app_rect_get_const(frame_state.edit_rect_index));
+	mvprintw(terminal_height - 1, 2, "Rects: %d  Conns: %d  Viewport: vx=%d vy=%d  Esc=exit",
 		 app_rect_count(), app_conn_count(), VIEWPORT_VX, VIEWPORT_VY);
 	refresh();
 }
