@@ -10,6 +10,12 @@ typedef struct
 	int next_conn_seq;
 } AppState_t;
 
+typedef struct
+{
+	int x;
+	int y;
+} ConnRoutePoint_t;
+
 int app_state_init(void);
 void app_state_destroy(void);
 AppState_t *app_state_get(void);
@@ -31,6 +37,8 @@ void app_make_conn_id(char *out_id, size_t out_size);
 int app_conn_count(void);
 DiagramConn_t *app_conn_get(int idx);
 const DiagramConn_t *app_conn_get_const(int idx);
+int app_conn_build_manual_route(const DiagramConn_t *conn, int start_x, int start_y, int end_x,
+				int end_y, ConnRoutePoint_t *out_points, int max_points);
 int app_conn_hit_at(int wx, int wy);
 int app_conn_remove_at(int idx);
 int app_conn_remove_by_rect_id(const char *rect_id);

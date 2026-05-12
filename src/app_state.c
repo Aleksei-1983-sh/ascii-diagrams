@@ -40,6 +40,27 @@ rects_overlap(const DiagramRect_t *a, const DiagramRect_t *b)
 	return 1;
 }
 
+static void
+conn_route_append_point(ConnRoutePoint_t *out_points, int max_points, int *point_count, int x, int y)
+{
+	if (out_points == NULL || point_count == NULL || max_points <= 0)
+		return;
+
+	if (*point_count > 0)
+	{
+		ConnRoutePoint_t *last_point = &out_points[*point_count - 1];
+
+		if (last_point->x == x && last_point->y == y)
+			return;
+	}
+	if (*point_count >= max_points)
+		return;
+
+	out_points[*point_count].x = x;
+	out_points[*point_count].y = y;
+	++(*point_count);
+}
+
 int
 app_state_init(void)
 {
@@ -60,6 +81,40 @@ AppState_t *
 app_state_get(void)
 {
 	return &g_app_state;
+}
+
+int
+app_conn_build_manual_route(const DiagramConn_t *conn, int start_x, int start_y, int end_x, int end_y,
+			    ConnRoutePoint_t *out_points, int max_points)
+{
+	int point_count;
+	int previous_x;
+	int previous_y;
+
+	if (conn == NULL || out_points == NULL || max_points <= 0)
+		return -1;
+
+	point_count = 0;
+	previous_x = start_x;
+	previous_y = start_y;
+
+	conn_route_append_point(out_points, max_points, &point_count, previous_x, previous_y);
+	conn_route_append_point(out_points, max_points, &point_count, conn->p1x, previous_y);
+	conn_route_append_point(out_points, max_points, &point_count, conn->p1x, conn->p1y);
+	previous_x = conn->p1x;
+	previous_y = conn->p1y;
+
+	if (conn->p2x != conn->p1x || conn->p2y != conn->p1y)
+	{
+		conn_route_append_point(out_points, max_points, &point_count, conn->p2x, previous_y);
+		conn_route_append_point(out_points, max_points, &point_count, conn->p2x, conn->p2y);
+		previous_x = conn->p2x;
+		previous_y = conn->p2y;
+	}
+
+	conn_route_append_point(out_points, max_points, &point_count, previous_x, end_y);
+	conn_route_append_point(out_points, max_points, &point_count, end_x, end_y);
+	return point_count;
 }
 
 void
@@ -355,16 +410,25 @@ app_conn_hit_at(int wx, int wy)
 
 		if (conn->has_manual_points)
 		{
-			int cx = conn->p1x;
-			int cy = conn->p1y;
-			if (wx == ax && between_i(wy, ay, cy))
-				return i;
-			if (wy == cy && between_i(wx, ax, cx))
-				return i;
-			if (wx == cx && between_i(wy, cy, by))
-				return i;
-			if (wy == by && between_i(wx, cx, bx))
-				return i;
+			ConnRoutePoint_t route_points[6];
+			int point_count;
+			int point_index;
+
+			point_count = app_conn_build_manual_route(conn, ax, ay, bx, by, route_points,
+								  (int)(sizeof(route_points) /
+									sizeof(route_points[0])));
+			for (point_index = 1; point_index < point_count; ++point_index)
+			{
+				ConnRoutePoint_t *from_point = &route_points[point_index - 1];
+				ConnRoutePoint_t *to_point = &route_points[point_index];
+
+				if (from_point->x == to_point->x && wx == from_point->x &&
+				    between_i(wy, from_point->y, to_point->y))
+					return i;
+				if (from_point->y == to_point->y && wy == from_point->y &&
+				    between_i(wx, from_point->x, to_point->x))
+					return i;
+			}
 		}
 		else
 		{

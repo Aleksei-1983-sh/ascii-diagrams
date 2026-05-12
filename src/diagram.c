@@ -275,19 +275,88 @@ find_conn_index(const Diagram_t *diagram, const char *conn_id)
 }
 
 static int
-validate_conn(const Diagram_t *diagram, const DiagramConn_t *conn)
+find_conn_exact_index(const Diagram_t *diagram, const char *from_rect_id, const char *to_rect_id,
+		      const char *exclude_conn_id)
+{
+	size_t i;
+
+	if (diagram == NULL || from_rect_id == NULL || to_rect_id == NULL)
+		return -1;
+
+	for (i = 0; i < diagram->conn_count; ++i)
+	{
+		const DiagramConn_t *existing_conn = &diagram->conns[i];
+
+		if (exclude_conn_id != NULL && strcmp(existing_conn->id, exclude_conn_id) == 0)
+			continue;
+		if (strcmp(existing_conn->from_rect_id, from_rect_id) == 0 &&
+		    strcmp(existing_conn->to_rect_id, to_rect_id) == 0)
+			return (int)i;
+	}
+
+	return -1;
+}
+
+static int
+find_conn_reverse_index(const Diagram_t *diagram, const char *from_rect_id, const char *to_rect_id,
+			const char *exclude_conn_id)
+{
+	size_t i;
+
+	if (diagram == NULL || from_rect_id == NULL || to_rect_id == NULL)
+		return -1;
+
+	for (i = 0; i < diagram->conn_count; ++i)
+	{
+		const DiagramConn_t *existing_conn = &diagram->conns[i];
+
+		if (exclude_conn_id != NULL && strcmp(existing_conn->id, exclude_conn_id) == 0)
+			continue;
+		if (strcmp(existing_conn->from_rect_id, to_rect_id) == 0 &&
+		    strcmp(existing_conn->to_rect_id, from_rect_id) == 0)
+			return (int)i;
+	}
+
+	return -1;
+}
+
+static int
+validate_conn(const Diagram_t *diagram, const DiagramConn_t *conn, const char *exclude_conn_id)
 {
 	if (diagram == NULL || conn == NULL)
 		return DIAGRAM_ERR_INVALID;
 	if (conn->id[0] == '\0' || conn->from_rect_id[0] == '\0' || conn->to_rect_id[0] == '\0')
 		return DIAGRAM_ERR_INVALID;
 	if (strcmp(conn->from_rect_id, conn->to_rect_id) == 0)
-		return DIAGRAM_ERR_INVALID;
+			return DIAGRAM_ERR_INVALID;
 	if (find_rect_index(diagram, conn->from_rect_id) < 0)
 		return DIAGRAM_ERR_NOT_FOUND;
 	if (find_rect_index(diagram, conn->to_rect_id) < 0)
 		return DIAGRAM_ERR_NOT_FOUND;
+	if (find_conn_exact_index(diagram, conn->from_rect_id, conn->to_rect_id,
+				  exclude_conn_id) >= 0)
+		return DIAGRAM_ERR_EXISTS;
 
+	return DIAGRAM_OK;
+}
+
+static int
+remove_reverse_conn(Diagram_t *diagram, const char *from_rect_id, const char *to_rect_id,
+		    const char *exclude_conn_id)
+{
+	int reverse_idx;
+
+	if (diagram == NULL || from_rect_id == NULL || to_rect_id == NULL)
+		return DIAGRAM_ERR_INVALID;
+
+	reverse_idx = find_conn_reverse_index(diagram, from_rect_id, to_rect_id, exclude_conn_id);
+	if (reverse_idx < 0)
+		return DIAGRAM_OK;
+
+	memmove(&diagram->conns[reverse_idx], &diagram->conns[reverse_idx + 1],
+		(diagram->conn_count - (size_t)reverse_idx - 1) * sizeof(diagram->conns[0]));
+	diagram->conn_count--;
+	diagram->dirty = 1;
 	return DIAGRAM_OK;
 }
 
@@ -879,7 +948,10 @@ diagram_add_conn(Diagram_t *diagram, const DiagramConn_t *conn)
 		return DIAGRAM_ERR_INVALID;
 	if (find_conn_index(diagram, conn->id) >= 0)
 		return DIAGRAM_ERR_EXISTS;
-	status = validate_conn(diagram, conn);
+	status = validate_conn(diagram, conn, NULL);
+	if (status != DIAGRAM_OK)
+		return status;
+	status = remove_reverse_conn(diagram, conn->from_rect_id, conn->to_rect_id, NULL);
 	if (status != DIAGRAM_OK)
 		return status;
 	if (ensure_conn_capacity(diagram) != DIAGRAM_OK)
@@ -915,9 +987,16 @@ diagram_update_conn(Diagram_t *diagram, const DiagramConn_t *conn)
 	if (dst == NULL)
 		return DIAGRAM_ERR_NOT_FOUND;
 
-	status = validate_conn(diagram, conn);
+	status = validate_conn(diagram, conn, conn->id);
 	if (status != DIAGRAM_OK)
 		return status;
+	status = remove_reverse_conn(diagram, conn->from_rect_id, conn->to_rect_id, conn->id);
+	if (status != DIAGRAM_OK)
+		return status;
+
+	dst = diagram_find_conn(diagram, conn->id);
+	if (dst == NULL)
+		return DIAGRAM_ERR_NOT_FOUND;
 
 	copy_string(dst->from_rect_id, sizeof(dst->from_rect_id), conn->from_rect_id);
 	copy_string(dst->to_rect_id, sizeof(dst->to_rect_id), conn->to_rect_id);

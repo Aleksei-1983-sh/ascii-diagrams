@@ -577,6 +577,8 @@ handle_right_released(InputState *s, int mx, int my)
 	{
 		int over_rect_idx;
 		DiagramConn_t *selected_conn;
+		DiagramConn_t updated_conn;
+		int update_status;
 
 		selected_conn = app_conn_get(s->conn_selected);
 		if (selected_conn == NULL)
@@ -594,25 +596,28 @@ handle_right_released(InputState *s, int mx, int my)
 			target_id = app_rect_get(over_rect_idx)->id;
 			if (strcmp(target_id, selected_conn->from_rect_id) != 0)
 			{
-				LOG_INPUT("conn retarget finish conn_id=%s new_to=%s",
-					  selected_conn->id, target_id);
-				snprintf(selected_conn->to_rect_id, sizeof(selected_conn->to_rect_id),
-					 "%s", target_id);
+				updated_conn = *selected_conn;
+				snprintf(updated_conn.to_rect_id, sizeof(updated_conn.to_rect_id), "%s",
+					 target_id);
+				update_status = diagram_update_conn(&app_state_get()->diagram,
+								    &updated_conn);
+				if (update_status == DIAGRAM_OK)
+					LOG_INPUT("conn retarget finish conn_id=%s new_to=%s",
+						  selected_conn->id, target_id);
+				else
+					LOG_INPUT("conn retarget rejected conn_id=%s new_to=%s status=%d",
+						  selected_conn->id, target_id, update_status);
 			}
 			else
 			{
 				LOG_INPUT("conn retarget canceled: target equals source rect_id=%s",
 					  target_id);
-				snprintf(selected_conn->to_rect_id, sizeof(selected_conn->to_rect_id),
-					 "%s", s->conn_move_orig_b);
 			}
 		}
 		else
 		{
 			LOG_INPUT("conn retarget canceled: release not over rect conn_id=%s",
 				  selected_conn->id);
-			snprintf(selected_conn->to_rect_id, sizeof(selected_conn->to_rect_id), "%s",
-				 s->conn_move_orig_b);
 		}
 
 		clear_conn_move_state(s);

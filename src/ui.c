@@ -476,53 +476,57 @@ choose_final_horizontal(const DiagramRect_t *target_rect, int corner_x, int corn
 static void
 draw_conn_manual(const DiagramConn_t *conn, const ConnEndpoints_t *endpoints)
 {
-	int previous_x;
-	int previous_y;
-	int current_x;
-	int current_y;
+	ConnRoutePoint_t route_points[6];
+	int point_count;
+	int point_index;
 
 	LOG_UI("Drawing manual connection id=%s", conn->id);
 
-	previous_x = endpoints->start_x;
-	previous_y = endpoints->start_y;
-	current_x = conn->p1x;
-	current_y = conn->p1y;
-	if (previous_x != current_x)
-		draw_horizontal_segment_world(previous_x, current_x, previous_y, 0, 0);
-	draw_turn_world(current_x, previous_y);
-	if (previous_y != current_y)
-		draw_vertical_segment_world(current_x, previous_y, current_y, 0, 0);
-	draw_turn_world(current_x, current_y);
-	previous_x = current_x;
-	previous_y = current_y;
-
-	if (conn->p2x != conn->p1x || conn->p2y != conn->p1y)
+	point_count = app_conn_build_manual_route(conn, endpoints->start_x, endpoints->start_y,
+						  endpoints->end_x, endpoints->end_y,
+						  route_points,
+						  (int)(sizeof(route_points) /
+							sizeof(route_points[0])));
+	for (point_index = 1; point_index < point_count; ++point_index)
 	{
-		current_x = conn->p2x;
-		current_y = conn->p2y;
-		if (previous_x != current_x)
-			draw_horizontal_segment_world(previous_x, current_x, previous_y, 0, 0);
-		draw_turn_world(current_x, previous_y);
-		if (previous_y != current_y)
-			draw_vertical_segment_world(current_x, previous_y, current_y, 0, 0);
-		draw_turn_world(current_x, current_y);
-		previous_x = current_x;
-		previous_y = current_y;
+		ConnRoutePoint_t *from_point = &route_points[point_index - 1];
+		ConnRoutePoint_t *to_point = &route_points[point_index];
+		int skip_last;
+
+		skip_last = point_index == point_count - 1 ? 1 : 0;
+		if (from_point->x == to_point->x)
+		{
+			draw_vertical_segment_world(from_point->x, from_point->y, to_point->y, 0,
+						    skip_last);
+			if (!skip_last)
+				draw_turn_world(to_point->x, to_point->y);
+		} else if (from_point->y == to_point->y)
+		{
+			draw_horizontal_segment_world(from_point->x, to_point->x, from_point->y, 0,
+						      skip_last);
+			if (!skip_last)
+				draw_turn_world(to_point->x, to_point->y);
+		}
 	}
 
-	if (previous_y != endpoints->end_y)
-		draw_vertical_segment_world(previous_x, previous_y, endpoints->end_y, 0, 0);
-	draw_turn_world(previous_x, endpoints->end_y);
-	if (previous_x != endpoints->end_x)
-		draw_horizontal_segment_world(previous_x, endpoints->end_x, endpoints->end_y, 0, 1);
-	if (previous_x < endpoints->end_x)
-		draw_straight_horizontal_world(previous_x, endpoints->end_x, endpoints->end_y, +1);
-	else if (previous_x > endpoints->end_x)
-		draw_straight_horizontal_world(endpoints->end_x, previous_x, endpoints->end_y, -1);
-	else if (previous_y < endpoints->end_y)
-		draw_straight_vertical_world(previous_x, previous_y, endpoints->end_y, +1);
-	else if (previous_y > endpoints->end_y)
-		draw_straight_vertical_world(previous_x, endpoints->end_y, previous_y, -1);
+	if (point_count >= 2)
+	{
+		ConnRoutePoint_t *last_from_point = &route_points[point_count - 2];
+		ConnRoutePoint_t *last_to_point = &route_points[point_count - 1];
+
+		if (last_from_point->x < last_to_point->x)
+			draw_straight_horizontal_world(last_from_point->x, last_to_point->x,
+						       last_to_point->y, +1);
+		else if (last_from_point->x > last_to_point->x)
+			draw_straight_horizontal_world(last_to_point->x, last_from_point->x,
+						       last_to_point->y, -1);
+		else if (last_from_point->y < last_to_point->y)
+			draw_straight_vertical_world(last_from_point->x, last_from_point->y,
+						     last_to_point->y, +1);
+		else if (last_from_point->y > last_to_point->y)
+			draw_straight_vertical_world(last_from_point->x, last_to_point->y,
+						     last_from_point->y, -1);
+	}
 }
 
 /*
