@@ -363,3 +363,44 @@ app_conn_remove_at(int idx)
 	conn = &g_app_state.diagram.conns[idx];
 	return diagram_remove_conn(&g_app_state.diagram, conn->id);
 }
+
+int
+app_conn_remove_by_rect_id(const char *rect_id)
+{
+        int i;
+        int removed = 0;
+
+        if (rect_id == NULL)
+                return 0;
+
+        for (i = (int)g_app_state.diagram.conn_count - 1; i >= 0; --i)
+        {
+                DiagramConn_t *conn = &g_app_state.diagram.conns[i];
+                if (strcmp(conn->from_rect_id, rect_id) == 0 ||
+                    strcmp(conn->to_rect_id, rect_id) == 0)
+                {
+                        diagram_remove_conn(&g_app_state.diagram, conn->id);
+                        removed++;
+                }
+        }
+        return removed;
+}
+
+int
+app_rect_remove_at(int idx)
+{
+        DiagramRect_t *rect;
+        const char *rect_id;
+
+        if (idx < 0 || idx >= (int)g_app_state.diagram.rect_count)
+                return -1;
+
+        rect = &g_app_state.diagram.rects[idx];
+        rect_id = rect->id;
+
+        /* Сначала удаляем все соединения, связанные с этим блоком */
+        app_conn_remove_by_rect_id(rect_id);
+
+        /* Затем удаляем сам блок */
+        return diagram_remove_rect(&g_app_state.diagram, rect_id);
+}

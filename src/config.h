@@ -22,6 +22,8 @@
 #define BTN_TEXT "[Create Rect]"
 #define SAVE_BTN_X (BTN_X + (int)sizeof(BTN_TEXT) + 4)
 #define SAVE_BTN_TEXT "[Save As]"
+#define DELETE_BTN_X (SAVE_BTN_X + (int)sizeof(SAVE_BTN_TEXT) + 4)
+#define DELETE_BTN_TEXT "[Delete Block]"
 #define MIN_W 6
 #define MIN_H 3
 #define MAX_TEXT_LEN 1024

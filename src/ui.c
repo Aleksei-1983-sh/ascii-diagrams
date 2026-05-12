@@ -39,7 +39,7 @@ draw_button(void)
 {
 	mvaddstr(BTN_Y, BTN_X, BTN_TEXT);
 	mvaddstr(BTN_Y, SAVE_BTN_X, SAVE_BTN_TEXT);
-	mvaddstr(BTN_Y, SAVE_BTN_X + (int)strlen(SAVE_BTN_TEXT) + 2, "(left click)");
+	mvaddstr(BTN_Y, DELETE_BTN_X, DELETE_BTN_TEXT);
 }
 
 void

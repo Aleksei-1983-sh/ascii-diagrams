@@ -53,6 +53,9 @@ typedef struct
 	int edit_idx;	 /* индекс редактируемого блока или -1 */
 	int panel_focus; /* 0 - текст в блоке, 1 - панель (title/size) */
 
+	/* выделенный блок */
+	int rect_selected; /* индекс выделенного блока или -1 */
+
 	/* drag/resize */
 	int dragging;
 	int drag_idx;
@@ -110,6 +113,7 @@ input_state_init(InputState *s)
 {
 	memset(s, 0, sizeof(*s));
 	s->edit_idx = -1;
+	s->rect_selected = -1;
 	s->drag_idx = -1;
 	s->resize_idx = -1;
 	s->conn_dragging = 0;
@@ -274,6 +278,21 @@ handle_left_pressed(InputState *s, int mx, int my, int buttons)
 		return;
 	}
 
+	/* Кнопка Delete Block */
+	int dbx = DELETE_BTN_X;
+	int dblen = (int)strlen(DELETE_BTN_TEXT);
+	if (mx >= dbx && mx < dbx + dblen && my == by)
+	{
+			if (s->rect_selected >= 0)
+			{
+					app_rect_remove_at(s->rect_selected);
+					s->rect_selected = -1;
+			}
+			ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected,
+						s->last_mouse_x, s->last_mouse_y);
+			return;
+	}
+
 	int idx = app_rect_index_at(wx, wy);
 	if (idx >= 0)
 	{
@@ -314,18 +333,16 @@ handle_left_pressed(InputState *s, int mx, int my, int buttons)
 		s->drag_offy = wy - r->y;
 		s->last_left_click_time_ms = t;
 		s->last_left_click_idx = new_idx;
+		/* Выделяем блок при клике */
+		s->rect_selected = new_idx;
 		LOG_INPUT("drag start new_idx=%d id=%s off=%d,%d", new_idx, r->id, s->drag_offx,
 			  s->drag_offy);
 		return;
 	}
 	else
 	{
-		/* clicked on empty space -> maybe start pan (if space held or middle btn or
-		   fallback) handled elsewhere. For convenience: if Space is held (check getch can't
-		   tell easily), we'll rely on higher-level detection: here, we mark
-		   last_left_click_idx = -1 and return; actual pan start handled by main loop when
-		   seeing movement
-		*/
+		/* clicked on empty space -> deselect rect */
+		s->rect_selected = -1;
 		s->last_left_click_idx = -1;
 		LOG_INPUT("left_pressed on empty space world=%d,%d", wx, wy);
 		return;
@@ -442,6 +459,12 @@ handle_right_pressed(InputState *s, int mx, int my)
 	int idx = app_rect_index_at(wx, wy);
 	if (idx >= 0)
 	{
+
+		/* При правом клике на блок — тоже выделяем его */
+		app_rect_move_to_end(idx);
+		int new_idx = app_rect_count() - 1;
+		s->rect_selected = new_idx;
+
 		if (s->conn_start_id[0] == '\0')
 		{
 			snprintf(s->conn_start_id, sizeof(s->conn_start_id), "%s", app_rect_get(idx)->id);

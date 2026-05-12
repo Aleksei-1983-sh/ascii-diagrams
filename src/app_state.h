@@ -33,5 +33,9 @@ DiagramConn_t *app_conn_get(int idx);
 const DiagramConn_t *app_conn_get_const(int idx);
 int app_conn_hit_at(int wx, int wy);
 int app_conn_remove_at(int idx);
+int app_conn_remove_by_rect_id(const char *rect_id);
+
+/* Удаление блока по индексу и всех связанных соединений */
+int app_rect_remove_at(int idx);
 
 #endif
