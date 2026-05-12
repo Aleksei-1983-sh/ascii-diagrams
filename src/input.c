@@ -91,11 +91,27 @@ typedef struct
 	mmask_t oldmask;
 } InputState;
 
+/**
+ * @brief Перерисовка экрана с использованием контекста отрисовки
+ * 
+ * Создаёт структуру UiDrawContext_t из состояния InputState
+ * и вызывает ui_draw_all для отрисовки всех элементов.
+ * 
+ * @param s Указатель на текущее состояние ввода
+ */
 static void
 redraw(InputState *s)
 {
-	ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected, s->last_mouse_x,
-		    s->last_mouse_y);
+	UiDrawContext_t ctx;
+	
+	ctx.editing = s->editing;
+	ctx.edit_idx = s->edit_idx;
+	ctx.conn_move_active = s->conn_move_active;
+	ctx.conn_selected = s->conn_selected;
+	ctx.last_mouse_x = s->last_mouse_x;
+	ctx.last_mouse_y = s->last_mouse_y;
+	
+	ui_draw_all(&ctx);
 }
 
 static void
@@ -265,16 +281,16 @@ handle_left_pressed(InputState *s, int mx, int my, int buttons)
 			snprintf(rect.title, sizeof(rect.title), "Block %d", app_rect_count() + 1);
 			diagram_add_rect(&app_state_get()->diagram, &rect);
 		} while (0);
-		ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected,
-			    s->last_mouse_x, s->last_mouse_y);
+		redraw(s);
+			
 		return;
 	}
 
 	if (mx >= sbx && mx < sbx + sblen && my == by)
 	{
 		save_dialog_open();
-		ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected,
-			    s->last_mouse_x, s->last_mouse_y);
+		redraw(s);
+			
 		return;
 	}
 
@@ -288,8 +304,7 @@ handle_left_pressed(InputState *s, int mx, int my, int buttons)
 					app_rect_remove_at(s->rect_selected);
 					s->rect_selected = -1;
 			}
-			ui_draw_all(s->editing, s->edit_idx, s->conn_move_active, s->conn_selected,
-						s->last_mouse_x, s->last_mouse_y);
+			redraw(s);
 			return;
 	}
 
