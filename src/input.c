@@ -91,6 +91,18 @@ typedef struct
 	mmask_t oldmask;
 } InputState;
 
+/*
+ Сбрасывает режим создания нового соединения.
+*/
+static void
+clear_conn_create_state(InputState *s)
+{
+	if (s == NULL)
+		return;
+
+	s->conn_start_id[0] = '\0';
+}
+
 static void
 redraw(InputState *s)
 {
@@ -105,6 +117,20 @@ clear_drag_state(InputState *s)
 	s->drag_idx = -1;
 	s->resizing = 0;
 	s->resize_idx = -1;
+}
+
+/*
+ Сбрасывает режим переназначения конца существующего соединения.
+*/
+static void
+clear_conn_move_state(InputState *s)
+{
+	if (s == NULL)
+		return;
+
+	s->conn_move_active = 0;
+	s->conn_selected = -1;
+	s->conn_move_orig_b[0] = '\0';
 }
 
 /* Инициализация состояния */
@@ -443,82 +469,153 @@ static void
 handle_right_pressed(InputState *s, int mx, int my)
 {
 	int wx, wy;
+	int rect_idx;
+	int conn_idx;
+
 	screen_to_world_point(mx, my, &wx, &wy);
-	int cidx = app_conn_hit_at(wx, wy);
-	if (cidx >= 0)
+
+	/*
+	 Приоритет у блока, а не у линии.
+	 Иначе ПКМ по блоку, рядом с которым проходит соединение, может ошибочно
+	 перевести существующую линию в режим переназначения вместо создания новой.
+	*/
+	rect_idx = app_rect_index_at(wx, wy);
+	if (rect_idx >= 0)
 	{
-		s->conn_selected = cidx;
+		char clicked_rect_id[DIAGRAM_ID_MAX];
+		int moved_rect_idx;
+		DiagramRect_t *clicked_rect;
+
+		clicked_rect = app_rect_get(rect_idx);
+		if (clicked_rect == NULL)
+			return;
+
+		/*
+		 Сохраняем id до перемещения в конец.
+		 После app_rect_move_to_end(rect_idx) старый индекс уже может ссылаться
+		 на другой блок.
+		*/
+		snprintf(clicked_rect_id, sizeof(clicked_rect_id), "%s", clicked_rect->id);
+
+		app_rect_move_to_end(rect_idx);
+		moved_rect_idx = app_rect_count() - 1;
+		s->rect_selected = moved_rect_idx;
+
+		if (s->conn_start_id[0] == '\0')
+		{
+			snprintf(s->conn_start_id, sizeof(s->conn_start_id), "%s", clicked_rect_id);
+			LOG_INPUT("conn create start rect_id=%s idx=%d", s->conn_start_id,
+				  moved_rect_idx);
+			mvprintw(0, 2, "Connection start: %s   ", s->conn_start_id);
+			refresh();
+		} else
+		{
+			DiagramConn_t conn = {0};
+			int add_status;
+
+			app_make_conn_id(conn.id, sizeof(conn.id));
+			snprintf(conn.from_rect_id, sizeof(conn.from_rect_id), "%s", s->conn_start_id);
+			snprintf(conn.to_rect_id, sizeof(conn.to_rect_id), "%s", clicked_rect_id);
+			conn.from_side = ANCHOR_AUTO;
+			conn.to_side = ANCHOR_AUTO;
+
+			if (strcmp(conn.from_rect_id, conn.to_rect_id) != 0)
+			{
+				add_status = diagram_add_conn(&app_state_get()->diagram, &conn);
+				LOG_INPUT("conn create finish from=%s to=%s status=%d", conn.from_rect_id,
+					  conn.to_rect_id, add_status);
+			}
+			else
+			{
+				LOG_INPUT("conn create canceled: same rect id=%s", clicked_rect_id);
+			}
+			clear_conn_create_state(s);
+			redraw(s);
+		}
+		return;
+	}
+
+	conn_idx = app_conn_hit_at(wx, wy);
+	if (conn_idx >= 0)
+	{
+		DiagramConn_t *selected_conn;
+
+		selected_conn = app_conn_get(conn_idx);
+		if (selected_conn == NULL)
+			return;
+
+		clear_conn_create_state(s);
+		s->conn_selected = conn_idx;
 		s->conn_move_active = 1;
-		snprintf(s->conn_move_orig_b, sizeof(s->conn_move_orig_b), "%s", app_conn_get(cidx)->to_rect_id);
+		snprintf(s->conn_move_orig_b, sizeof(s->conn_move_orig_b), "%s",
+			 selected_conn->to_rect_id);
 		s->last_right_click_time_ms = now_ms();
-		s->last_right_click_conn = cidx;
+		s->last_right_click_conn = conn_idx;
+		LOG_INPUT("conn retarget start conn_id=%s from=%s orig_to=%s", selected_conn->id,
+			  selected_conn->from_rect_id, selected_conn->to_rect_id);
 		redraw(s);
 		return;
 	}
 
-	int idx = app_rect_index_at(wx, wy);
-	if (idx >= 0)
-	{
-
-		/* При правом клике на блок — тоже выделяем его */
-		app_rect_move_to_end(idx);
-		int new_idx = app_rect_count() - 1;
-		s->rect_selected = new_idx;
-
-		if (s->conn_start_id[0] == '\0')
-		{
-			snprintf(s->conn_start_id, sizeof(s->conn_start_id), "%s", app_rect_get(idx)->id);
-			mvprintw(0, 2, "Connection start: %s   ", s->conn_start_id);
-			refresh();
-		}
-		else
-		{
-			DiagramConn_t conn = {0};
-			app_make_conn_id(conn.id, sizeof(conn.id));
-			snprintf(conn.from_rect_id, sizeof(conn.from_rect_id), "%s", s->conn_start_id);
-			snprintf(conn.to_rect_id, sizeof(conn.to_rect_id), "%s", app_rect_get(idx)->id);
-			conn.from_side = ANCHOR_AUTO;
-			conn.to_side = ANCHOR_AUTO;
-			if (strcmp(conn.from_rect_id, conn.to_rect_id) != 0)
-				diagram_add_conn(&app_state_get()->diagram, &conn);
-			s->conn_start_id[0] = '\0';
-			redraw(s);
-		}
-	}
-	else
-	{
-		s->conn_start_id[0] = '\0';
-		redraw(s);
-	}
+	clear_conn_create_state(s);
+	if (s->conn_move_active || s->conn_selected >= 0)
+		clear_conn_move_state(s);
+	LOG_INPUT("right_pressed on empty space world=%d,%d", wx, wy);
+	redraw(s);
 }
 
 static void
 handle_right_released(InputState *s, int mx, int my)
 {
 	int wx, wy;
+
 	screen_to_world_point(mx, my, &wx, &wy);
 	if (!s->conn_move_active && s->conn_selected < 0)
 		return;
 
 	if (s->conn_move_active && s->conn_selected >= 0)
 	{
-		int over_idx = app_rect_index_at(wx, wy);
-		if (over_idx >= 0)
+		int over_rect_idx;
+		DiagramConn_t *selected_conn;
+
+		selected_conn = app_conn_get(s->conn_selected);
+		if (selected_conn == NULL)
 		{
-			DiagramConn_t *conn = app_conn_get(s->conn_selected);
-			const char *target_id = app_rect_get(over_idx)->id;
-			if (strcmp(target_id, conn->from_rect_id) != 0)
-				snprintf(conn->to_rect_id, sizeof(conn->to_rect_id), "%s", target_id);
+			clear_conn_move_state(s);
+			redraw(s);
+			return;
+		}
+
+		over_rect_idx = app_rect_index_at(wx, wy);
+		if (over_rect_idx >= 0)
+		{
+			const char *target_id;
+
+			target_id = app_rect_get(over_rect_idx)->id;
+			if (strcmp(target_id, selected_conn->from_rect_id) != 0)
+			{
+				LOG_INPUT("conn retarget finish conn_id=%s new_to=%s",
+					  selected_conn->id, target_id);
+				snprintf(selected_conn->to_rect_id, sizeof(selected_conn->to_rect_id),
+					 "%s", target_id);
+			}
 			else
-				snprintf(conn->to_rect_id, sizeof(conn->to_rect_id), "%s", s->conn_move_orig_b);
+			{
+				LOG_INPUT("conn retarget canceled: target equals source rect_id=%s",
+					  target_id);
+				snprintf(selected_conn->to_rect_id, sizeof(selected_conn->to_rect_id),
+					 "%s", s->conn_move_orig_b);
+			}
 		}
 		else
 		{
-			snprintf(app_conn_get(s->conn_selected)->to_rect_id, sizeof(app_conn_get(s->conn_selected)->to_rect_id), "%s", s->conn_move_orig_b);
+			LOG_INPUT("conn retarget canceled: release not over rect conn_id=%s",
+				  selected_conn->id);
+			snprintf(selected_conn->to_rect_id, sizeof(selected_conn->to_rect_id), "%s",
+				 s->conn_move_orig_b);
 		}
-		s->conn_move_active = 0;
-		s->conn_selected = -1;
-		s->conn_move_orig_b[0] = '\0';
+
+		clear_conn_move_state(s);
 		redraw(s);
 	}
 }

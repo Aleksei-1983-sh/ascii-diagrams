@@ -16,6 +16,30 @@ between_i(int v, int a, int b)
 	return v >= a && v <= b;
 }
 
+static int
+rects_overlap(const DiagramRect_t *a, const DiagramRect_t *b)
+{
+	int a_right;
+	int a_bottom;
+	int b_right;
+	int b_bottom;
+
+	if (a == NULL || b == NULL)
+		return 0;
+
+	a_right = a->x + a->width - 1;
+	a_bottom = a->y + a->height - 1;
+	b_right = b->x + b->width - 1;
+	b_bottom = b->y + b->height - 1;
+
+	if (a_right < b->x || b_right < a->x)
+		return 0;
+	if (a_bottom < b->y || b_bottom < a->y)
+		return 0;
+
+	return 1;
+}
+
 int
 app_state_init(void)
 {
@@ -344,9 +368,98 @@ app_conn_hit_at(int wx, int wy)
 		}
 		else
 		{
+			if (rects_overlap(ra, rb))
+				continue;
+
+			if (ra->x + ra->width - 1 < rb->x)
+			{
+				int a_top = ra->y + 1;
+				int a_bottom = ra->y + ra->height - 2;
+				int b_top = rb->y + 1;
+				int b_bottom = rb->y + rb->height - 2;
+				int inter_top = a_top > b_top ? a_top : b_top;
+				int inter_bottom = a_bottom < b_bottom ? a_bottom : b_bottom;
+
+				if (inter_top <= inter_bottom)
+				{
+					int mid_y = (inter_top + inter_bottom) / 2;
+					int a_border_x = ra->x + ra->width - 1;
+					int b_border_x = rb->x;
+
+					if (wy == mid_y && between_i(wx, a_border_x, b_border_x))
+						return i;
+					continue;
+				}
+			}
+
+			if (rb->x + rb->width - 1 < ra->x)
+			{
+				int a_top = ra->y + 1;
+				int a_bottom = ra->y + ra->height - 2;
+				int b_top = rb->y + 1;
+				int b_bottom = rb->y + rb->height - 2;
+				int inter_top = a_top > b_top ? a_top : b_top;
+				int inter_bottom = a_bottom < b_bottom ? a_bottom : b_bottom;
+
+				if (inter_top <= inter_bottom)
+				{
+					int mid_y = (inter_top + inter_bottom) / 2;
+					int a_border_x = ra->x;
+					int b_border_x = rb->x + rb->width - 1;
+
+					if (wy == mid_y && between_i(wx, b_border_x, a_border_x))
+						return i;
+					continue;
+				}
+			}
+
+			if (ra->y + ra->height - 1 < rb->y)
+			{
+				int a_left = ra->x + 1;
+				int a_right = ra->x + ra->width - 2;
+				int b_left = rb->x + 1;
+				int b_right = rb->x + rb->width - 2;
+				int inter_left = a_left > b_left ? a_left : b_left;
+				int inter_right = a_right < b_right ? a_right : b_right;
+
+				if (inter_left <= inter_right)
+				{
+					int mid_x = (inter_left + inter_right) / 2;
+					int a_border_y = ra->y + ra->height - 1;
+					int b_border_y = rb->y;
+
+					if (wx == mid_x && between_i(wy, a_border_y, b_border_y))
+						return i;
+					continue;
+				}
+			}
+
+			if (rb->y + rb->height - 1 < ra->y)
+			{
+				int a_left = ra->x + 1;
+				int a_right = ra->x + ra->width - 2;
+				int b_left = rb->x + 1;
+				int b_right = rb->x + rb->width - 2;
+				int inter_left = a_left > b_left ? a_left : b_left;
+				int inter_right = a_right < b_right ? a_right : b_right;
+
+				if (inter_left <= inter_right)
+				{
+					int mid_x = (inter_left + inter_right) / 2;
+					int a_border_y = ra->y;
+					int b_border_y = rb->y + rb->height - 1;
+
+					if (wx == mid_x && between_i(wy, b_border_y, a_border_y))
+						return i;
+					continue;
+				}
+			}
+
 			if (wx == ax && between_i(wy, ay, by))
 				return i;
 			if (wy == by && between_i(wx, ax, bx))
+				return i;
+			if (wy == ay && between_i(wx, ax, bx))
 				return i;
 		}
 	}
